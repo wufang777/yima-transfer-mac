@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后台设置 - 易码互传</title>
+<style>
+  :root {
+    --accent:#0A84FF; --accent-d:#0070E0;
+    --green:#34C759; --red:#FF3B30; --yellow:#FFCC00;
+    --text:#1d1d1f; --muted:#86868b;
+    --win:rgba(246,248,252,0.72); --win-border:rgba(255,255,255,0.65);
+    --sep:rgba(0,0,0,0.07);
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; color:var(--text); line-height:1.55;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+    background:
+      radial-gradient(900px 500px at 12% -5%, #dbe8ff 0, transparent 55%),
+      radial-gradient(800px 480px at 95% 0%, #ffe3f1 0, transparent 50%),
+      radial-gradient(700px 600px at 60% 110%, #e2fff0 0, transparent 55%),
+      linear-gradient(160deg,#eef2f8 0%,#e4ebf4 100%);
+    background-attachment:fixed;
+    padding:28px 16px 48px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:820px; margin:0 auto; }
+
+  .mac-win {
+    background:var(--win);
+    backdrop-filter:blur(28px) saturate(180%);
+    -webkit-backdrop-filter:blur(28px) saturate(180%);
+    border:1px solid var(--win-border);
+    border-radius:18px;
+    box-shadow:0 18px 50px rgba(20,30,60,.18), 0 2px 6px rgba(0,0,0,.06);
+    overflow:hidden;
+  }
+  .titlebar {
+    height:42px; display:flex; align-items:center; gap:8px;
+    padding:0 16px;
+    background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.15));
+    border-bottom:1px solid var(--sep);
+  }
+  .lights { display:flex; gap:8px; }
+  .light { width:12px; height:12px; border-radius:50%; box-shadow:inset 0 0 0 0.5px rgba(0,0,0,.18); }
+  .light.r { background:var(--red); } .light.y { background:var(--yellow); } .light.g { background:var(--green); }
+  .titlebar .t { flex:1; text-align:center; font-size:13.5px; font-weight:600; letter-spacing:.2px; color:#3a3a3c; }
+  .titlebar .spacer { width:52px; }
+  .content { padding:20px 22px 24px; }
+
+  h1 { font-size:22px; margin:0 0 2px; font-weight:650;
+       display:flex; align-items:center; gap:10px; }
+  h1 .logo { width:32px; height:32px; border-radius:8px; flex-shrink:0; }
+  .sub { color:var(--muted); font-size:13px; }
+  .hint { background:rgba(255,204,0,.12); border:1px solid rgba(255,184,0,.35); color:#8a5a00; border-radius:12px; padding:11px 14px; font-size:13px; margin:14px 0 4px; }
+  .section { padding:16px 0; border-top:1px solid var(--sep); }
+  .section:first-of-type { border-top:none; padding-top:6px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    background:var(--accent); color:#fff; border:none; border-radius:9px;
+    padding:8px 16px; font-size:14px; font-weight:500; cursor:pointer; text-decoration:none; transition:.15s;
+    box-shadow:0 1px 2px rgba(10,132,255,.35); }
+  .btn:hover { background:var(--accent-d); }
+  .btn.ghost { background:rgba(255,255,255,.6); color:var(--accent); border:1px solid rgba(10,132,255,.35); box-shadow:none; }
+  .btn.ghost:hover { background:#fff; }
+  .btn.sm { padding:5px 12px; font-size:12.5px; border-radius:8px; }
+
+  input[type=text], input[type=number] {
+    border:1px solid rgba(0,0,0,.14); border-radius:9px; padding:9px 11px; font-size:14px;
+    background:rgba(255,255,255,.7); width:100%; transition:.15s; color:var(--text);
+  }
+  input[type=text]:focus, input[type=number]:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(10,132,255,.18); }
+
+  .tag { display:inline-block; background:rgba(10,132,255,.10); color:#064a8c; border-radius:7px; padding:3px 9px; font-size:12px; margin:0 6px 6px 0; cursor:pointer; border:1px solid rgba(10,132,255,.16); }
+  .tag:hover { background:rgba(10,132,255,.18); }
+  a.link { color:var(--accent); text-decoration:none; }
+
+  /* macOS 风格开关 */
+  .switch-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; }
+  .switch-row > div:first-child { flex:1; }
+  .mac-switch { position:relative; width:44px; height:26px; flex:0 0 auto; }
+  .mac-switch input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
+  .mac-switch .track { position:absolute; inset:0; background:rgba(120,120,128,.32); border-radius:13px; transition:.22s; }
+  .mac-switch .knob { position:absolute; top:2px; left:2px; width:22px; height:22px; background:#fff; border-radius:50%; box-shadow:0 2px 4px rgba(0,0,0,.25); transition:.22s; }
+  .mac-switch input:checked + .track { background:var(--green); }
+  .mac-switch input:checked + .track .knob { transform:translateX(18px); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mac-win">
+    <div class="titlebar">
+      <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+      <div class="t">易码互传 · 后台设置</div>
+      <div class="spacer"></div>
+    </div>
+    <div class="content">
+      <h1><img class="logo" src="/logo.png" alt="易码互传" onerror="this.style.display='none'">易码互传 · 后台设置</h1>
+      <div class="sub">配置存放路径与运行参数，修改即时保存到本机。</div>
+
+      <div class="hint">⚠️ 此设置页仅限本机使用。请勿在公共 / 陌生网络下暴露该管理接口。</div>
+
+      <div class="section">
+        <div class="row"><strong>文件存放路径</strong></div>
+        <div class="sub" style="margin:6px 0 0;">手机传来的文件将保存在此目录；修改后会自动把已有文件移过去。</div>
+        <input id="dir" type="text" placeholder="例如 D:\我的文件\手机互传" style="margin-top:10px;">
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn ghost sm" data-dir="desktop">桌面</button>
+          <button class="btn ghost sm" data-dir="downloads">下载</button>
+          <button class="btn ghost sm" data-dir="documents">文档</button>
+          <button class="btn ghost sm" data-dir="received">程序目录\received</button>
+        </div>
+        <div id="wxBox" style="display:none;margin-top:14px;padding-top:12px;border-top:1px solid var(--line, #e5e5ea);">
+          <div class="row" style="font-size:13px;"><strong>微信接收目录</strong></div>
+          <div class="sub" style="margin:4px 0 0;">
+            点一下即填入微信存放接收文件的目录，手机传来的文件会和微信收到的放在一起。
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;" id="wxBtns"></div>
+          <div class="sub" style="margin-top:8px;color:#c0392b;">
+            注意：该目录属微信管理范围，微信升级或清理缓存时可能变动 / 删除其中的文件，
+            重要文件请再另存一份到「下载」等常用目录。
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row"><strong>服务端口</strong></div>
+        <div class="sub" style="margin:6px 0 0;">HTTP 服务端口（1–65535）。修改端口后需重启服务生效。</div>
+        <input id="port" type="number" min="1" max="65535" style="width:170px;margin-top:10px;">
+      </div>
+
+      <div class="section">
+        <div class="switch-row">
+          <div>
+            <strong>开机自动启动</strong>
+            <div class="sub" style="margin:2px 0 0;">电脑开机后在后台自动运行，手机随时可传。</div>
+          </div>
+          <label class="mac-switch"><input type="checkbox" id="autostart"><span class="track"><span class="knob"></span></span></label>
+        </div>
+        <div class="switch-row">
+          <div>
+            <strong>收到文件时通知</strong>
+            <div class="sub" style="margin:2px 0 0;">托盘弹出"已收到文件"提示（无托盘时打印日志）。</div>
+          </div>
+          <label class="mac-switch"><input type="checkbox" id="notify"><span class="track"><span class="knob"></span></span></label>
+        </div>
+        <div class="switch-row">
+          <div>
+            <strong>收到文件时打开文件夹</strong>
+            <div class="sub" style="margin:2px 0 0;">每次收到文件自动打开接收目录（可能较频繁）。</div>
+          </div>
+          <label class="mac-switch"><input type="checkbox" id="openfolder"><span class="track"><span class="knob"></span></span></label>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row"><strong>在线升级</strong></div>
+        <div class="sub" style="margin:6px 0 0;">
+          填写更新清单（version.json）地址，应用就能检查新版本并一键升级。支持 http(s):// 网址，也支持本机 / 局域网文件路径。
+        </div>
+        <input id="feed" type="text" placeholder="https://你的服务器/易码互传/version.json" style="margin-top:10px;">
+        <div class="switch-row" style="margin-top:10px;">
+          <div>
+            <strong>启动时自动检查更新</strong>
+            <div class="sub" style="margin:2px 0 0;">启动 6 秒后在后台检查，有新版本会发系统通知。</div>
+          </div>
+          <label class="mac-switch"><input type="checkbox" id="autocheck"><span class="track"><span class="knob"></span></span></label>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn ghost sm" id="checknow">立即检查更新</button>
+          <span class="sub" id="checkmsg"></span>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row"><strong>当前版本</strong></div>
+        <div style="margin-top:8px;display:flex;gap:26px;flex-wrap:wrap;">
+          <div><div class="sub">版本号</div><div style="font-size:16px;font-weight:700;font-family:ui-monospace,Menlo,monospace;" id="verNow">—</div></div>
+          <div><div class="sub">构建号</div><div id="verBuild" style="font-size:14px;">—</div></div>
+          <div><div class="sub">发行日期</div><div id="verDate" style="font-size:14px;">—</div></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="save">保存设置</button>
+        <a class="btn ghost" href="/">← 返回传输页</a>
+      </div>
+      <div id="msg" class="sub" style="margin-top:12px;"></div>
+      <div class="sub" style="margin-top:18px;">
+        常用目录：
+        <div id="commonTags"></div>
+      </div>
+
+      <div style="text-align:center;color:var(--muted, #86868b);font-size:12px;margin:18px 0 6px;" id="verFooter">
+        版权所有：易码通科技
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const dirInput = document.getElementById('dir');
+const portInput = document.getElementById('port');
+const autostart = document.getElementById('autostart');
+const notify = document.getElementById('notify');
+const openfolder = document.getElementById('openfolder');
+const msg = document.getElementById('msg');
+const feedInput = document.getElementById('feed');
+const autocheck = document.getElementById('autocheck');
+let common = {};
+
+async function load(){
+  try {
+    const s = await (await fetch('/api/settings')).json();
+    dirInput.value = s.receive_dir || '';
+    portInput.value = s.port;
+    autostart.checked = !!s.autostart;
+    notify.checked = !!s.notify_on_receive;
+    openfolder.checked = !!s.open_folder_on_receive;
+    feedInput.value = s.update_feed || '';
+    autocheck.checked = !!s.update_check_on_start;
+    common = s.common_dirs || {};
+    renderTags();
+    renderWechat(s.wechat_dirs || []);
+    // 版本信息
+    document.getElementById('verNow').textContent = 'v' + (s.version || '—');
+    document.getElementById('verBuild').textContent = s.build || '—';
+    document.getElementById('verDate').textContent = s.release_date || '—';
+    document.getElementById('verFooter').textContent =
+      '版权所有：易码通科技　·　' + (s.version_line || '') ;
+  } catch(e){
+    msg.textContent = '加载设置失败：' + e;
+  }
+}
+
+document.getElementById('checknow').onclick = async ()=>{
+  const box = document.getElementById('checkmsg');
+  if(!feedInput.value.trim()){
+    box.textContent = '请先填写更新源地址并保存';
+    return;
+  }
+  box.textContent = '检查中…';
+  await fetch('/api/local/update/check',{method:'POST'});
+  let n = 0;
+  const t = setInterval(async ()=>{
+    try{
+      const st = await (await fetch('/api/local/update')).json();
+      if(st.phase === 'checking' || st.phase === 'idle'){ if(++n>20){ clearInterval(t); box.textContent='检查超时'; } return; }
+      clearInterval(t);
+      if(st.phase === 'available') box.textContent = '发现新版本 v' + ((st.manifest&&st.manifest.latest)||'') + '，请到控制台升级';
+      else if(st.phase === 'uptodate') box.textContent = '已是最新版本';
+      else box.textContent = st.error || '检查失败';
+    }catch(e){ clearInterval(t); box.textContent = '检查失败'; }
+  }, 700);
+};
+
+function renderTags(){
+  const box = document.getElementById('commonTags');
+  box.innerHTML = '';
+  for (const [k, v] of Object.entries(common)){
+    if (!v) continue;
+    const t = document.createElement('span');
+    t.className = 'tag';
+    t.textContent = v;
+    t.title = '点击填入：' + v;
+    t.onclick = () => { dirInput.value = v; };
+    box.appendChild(t);
+  }
+}
+
+// 微信接收目录：按账号列出，点一下填入
+function renderWechat(list){
+  const wrap = document.getElementById('wxBox');
+  const box = document.getElementById('wxBtns');
+  if (!list.length){ wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  box.innerHTML = '';
+  list.forEach(w => {
+    const b = document.createElement('button');
+    b.className = 'btn ghost sm';
+    const name = w.account + (w.recent ? '（最近使用）' : '');
+    b.textContent = name;
+    b.title = '点击填入：' + w.path + '\n该账号最近使用：' + w.label;
+    b.onclick = () => { dirInput.value = w.path; };
+    box.appendChild(b);
+  });
+}
+
+document.querySelectorAll('[data-dir]').forEach(b => {
+  b.onclick = () => {
+    const key = b.getAttribute('data-dir');
+    if (key === 'received') dirInput.value = common.received || '';
+    else dirInput.value = common[key] || '';
+  };
+});
+
+document.getElementById('save').onclick = async () => {
+  const payload = {
+    port: parseInt(portInput.value, 10),
+    receive_dir: dirInput.value.trim(),
+    autostart: autostart.checked,
+    notify_on_receive: notify.checked,
+    open_folder_on_receive: openfolder.checked,
+    update_feed: feedInput.value.trim(),
+    update_check_on_start: autocheck.checked,
+  };
+  if (!payload.port || payload.port < 1 || payload.port > 65535){
+    msg.textContent = '端口需在 1–65535 之间。'; return;
+  }
+  if (!payload.receive_dir){
+    msg.textContent = '请填写存放路径。'; return;
+  }
+  msg.textContent = '保存中…';
+  try {
+    const r = await (await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })).json();
+    if (!r.ok){ msg.textContent = '保存失败：' + (r.error || '未知'); return; }
+    let m = '已保存。';
+    if (r.moved > 0) m += ' 已移动 ' + r.moved + ' 个文件到新目录。';
+    if (r.need_restart){
+      m += ' 端口已更改，服务正在重启，请用新地址访问…';
+      msg.textContent = m;
+      fetch('/api/restart', { method: 'POST' }).catch(() => {});
+      setTimeout(() => { window.location.href = 'http://localhost:' + payload.port + '/settings'; }, 2200);
+      return;
+    }
+    msg.textContent = m;
+  } catch(e){
+    msg.textContent = '保存失败：' + e;
+  }
+};
+
+load();
+</script>
+</body>
+</html>

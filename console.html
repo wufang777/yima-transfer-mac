@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="BpWTMZstS57jSNfVBWHSy8">
+<head data-page-node-id="FOKABDphVD9OeXccI28Fir">
+<meta charset="UTF-8" data-page-node-id="CbeivVmdQ4AbdBTmRJM6lx">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="CJceBja0R3dQ8ONEweBAXj">
+<title>易码互传 · 控制台</title>
+<style>
+  :root{
+    --blue:#0a84ff; --blue-dark:#0060df; --orange:#ff9f0a; --red:#ff3b30;
+    --green:#30d158; --bg:#f2f2f5; --card:#ffffff; --text:#1d1d1f;
+    --sub:#86868b; --line:#e5e5ea; --radius:12px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+    display:flex; justify-content:center; padding:32px 16px;
+  }
+  .wrap{width:100%; max-width:860px}
+  header{display:flex; align-items:center; gap:12px; margin-bottom:24px}
+  header img{width:44px;height:44px;border-radius:10px}
+  header h1{font-size:22px; font-weight:700}
+  header .tag{font-size:12px; color:var(--sub)}
+  .badge{margin-left:auto; font-size:12px; color:var(--green); background:rgba(48,209,88,.12);
+    padding:4px 10px; border-radius:999px; font-weight:600}
+  .badge.off{color:var(--red); background:rgba(255,59,48,.12)}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card); border-radius:var(--radius); padding:20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .card h2{font-size:15px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+  .full{grid-column:1/-1}
+  .urlbox{display:flex; gap:8px; align-items:center; background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:14px}
+  .urlbox code{flex:1; font-family:ui-monospace,Menlo,monospace; word-break:break-all}
+  button{border:none; cursor:pointer; font-size:13px; border-radius:8px;
+    padding:7px 14px; font-weight:600; transition:opacity .15s}
+  button:hover{opacity:.85}
+  button:active{opacity:.7}
+  .btn-blue{background:var(--blue); color:#fff}
+  .btn-ghost{background:var(--bg); color:var(--text); border:1px solid var(--line)}
+  .btn-red{background:transparent; color:var(--red)}
+  .btn-orange{background:var(--orange); color:#fff}
+  .qr{display:flex; gap:16px; align-items:center; margin-top:14px}
+  .qr img{width:132px; height:132px; border:1px solid var(--line); border-radius:8px}
+  .qr .hint{font-size:13px; color:var(--sub); line-height:1.7}
+  .filelist{margin-top:8px}
+  .fitem{display:flex; align-items:center; gap:10px; padding:9px 4px;
+    border-bottom:1px solid var(--line); font-size:13px}
+  .fitem:last-child{border-bottom:none}
+  .fitem .name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500}
+  .fitem .size{color:var(--sub); font-size:12px; white-space:nowrap}
+  .fitem button{padding:4px 10px; font-size:12px}
+  .empty{color:var(--sub); font-size:13px; text-align:center; padding:18px 0}
+  .peer{display:flex; align-items:center; gap:10px; padding:10px 4px;
+    border-bottom:1px solid var(--line); font-size:13px}
+  .peer:last-child{border-bottom:none}
+  .peer .dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+  .peer .pname{flex:1; font-weight:500}
+  .peer .pip{color:var(--sub); font-size:12px}
+  .toolbar{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap}
+  .meta{font-size:12px; color:var(--sub); margin-top:10px; line-height:1.8}
+  footer{text-align:center; color:var(--sub); font-size:12px; margin-top:28px}
+  .toast{position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
+    background:rgba(29,29,31,.92); color:#fff; font-size:13px; padding:10px 18px;
+    border-radius:999px; opacity:0; pointer-events:none; transition:opacity .25s}
+  .toast.show{opacity:1}
+  .prog{height:4px; background:var(--bg); border-radius:2px; margin-top:6px; overflow:hidden}
+  .prog i{display:block; height:100%; width:0; background:var(--blue); transition:width .2s}
+
+  /* 版本与更新 */
+  .verline{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+  .verline .vnum{font-size:20px; font-weight:700; font-family:ui-monospace,Menlo,monospace}
+  .verline .vmeta{font-size:12px; color:var(--sub)}
+  .updbox{margin-top:12px; padding:12px; border-radius:10px; background:var(--bg);
+    border:1px solid var(--line); font-size:13px; line-height:1.7; display:none}
+  .updbox.show{display:block}
+  .updbox.ok{background:rgba(48,209,88,.10); border-color:rgba(48,209,88,.35)}
+  .updbox.new{background:rgba(10,132,255,.08); border-color:rgba(10,132,255,.32)}
+  .updbox.err{background:rgba(255,59,48,.08); border-color:rgba(255,59,48,.30)}
+  .updbox .t{font-weight:700; margin-bottom:6px}
+  .updbox ul{margin:6px 0 0 18px; color:var(--text)}
+  .updbox li{margin:2px 0}
+  .vercell{display:flex; gap:24px; flex-wrap:wrap; margin-top:6px}
+  .vercell div{font-size:12px; color:var(--sub)}
+  .vercell b{display:block; font-size:14px; color:var(--text); font-weight:600; margin-top:2px}
+</style>
+</head>
+<body data-page-node-id="YzaMHGDKBZzCWrSQxl1cLe">
+<div class="wrap" data-page-node-id="Tl8y9FEKp4vhpa8FBSPRc9">
+  <header data-page-node-id="kDSpqWJRdJYBRqigHSRpGq">
+    <img src="/logo.png" alt="易码互传" onerror="this.style.display='none'" data-page-node-id="Ld0wc4CmjJbcambSz3kBVz">
+    <div data-page-node-id="Ko3KoPj0Bstz5R1TN7tcYo">
+      <h1 data-page-node-id="8KGnCAXhbc5GFnFmFSxtOd">易码互传 · 控制台</h1>
+      <div class="tag" data-page-node-id="gl24m6hQTw7YQvFlQogM3p">局域网文件互传 · 易码通科技</div>
+    </div>
+    <span class="badge" id="badge" data-page-node-id="6E17QpIt4A8U9KywSnqQyp">运行中</span>
+  </header>
+
+  <div class="grid" data-page-node-id="5T3c2z41GXDfD5HQAsycX2">
+    <!-- 连接信息 -->
+    <div class="card" data-page-node-id="oreudB6lf1FmmvnR4FIbDB">
+      <h2 data-page-node-id="0eun5jczFVftCh6v80NSI3"><span class="dot" data-page-node-id="sSPiCy3deYeUuLEH3Zs20A"></span>手机连接</h2>
+      <div class="urlbox" data-page-node-id="Or7rhlqTmQrAl68Vv2mHHl"><code id="url" data-page-node-id="dJGOXTdZalTMLLi0N3Dtdm">…</code><button class="btn-blue" id="copy" data-page-node-id="YwhN6TLvNatQ9LROOcO8Jy">复制</button></div>
+      <div class="qr" data-page-node-id="HK1WJHgrYBsOxGcQxWAF3B">
+        <img id="qr" src="/qr.png" alt="二维码" data-page-node-id="feUSt5J6jHHCaGfRcxVtcr">
+        <div class="hint" data-page-node-id="psYuqneCvs5FunWTcieJh5">
+          手机与电脑连同一 WiFi，<br data-page-node-id="q4x2BCuR6i02lMJRaVuSFq">扫左侧二维码即可上传 / 下载。<br data-page-node-id="aKtMcyIZzYwaUBkuTLq5eZ">
+          若扫码打不开，可手动输入上方地址。
+        </div>
+      </div>
+    </div>
+
+    <!-- 局域网设备 -->
+    <div class="card" data-page-node-id="TZuz8unYwRsKa1AaYRFDL1">
+      <h2 data-page-node-id="v3x1V5xyBD6eg2Ewl7Ewvo"><span class="dot" data-page-node-id="nmxu2v91xtCj7sG2r3lKns"></span>局域网设备</h2>
+      <div id="peers" class="filelist" data-page-node-id="V99merdkJN7DEdZAogutSW"><div class="empty" data-page-node-id="f6PxHQCGWgVIjWPDbxQDje">正在扫描局域网…</div></div>
+      <div class="meta" data-page-node-id="jtT9CG0GAwGM8EIDg5MG7z">两台电脑都运行易码互传即可互相发现；选择对方设备发送文件。</div>
+    </div>
+
+    <!-- 发送文件到手机 -->
+    <div class="card full" id="sendcard">
+      <h2><span class="dot" style="background:var(--green)"></span>发送文件到手机</h2>
+      <div class="toolbar">
+        <button class="btn-blue" id="pick">选择文件…</button>
+        <button class="btn-ghost" id="unshareall" style="display:none">全部取消分享</button>
+      </div>
+      <div id="shared" class="filelist"></div>
+      <div class="meta">可一次选多个文件（弹出的是系统原生的选择窗口）。分享后，手机打开页面在
+        「电脑发来的文件」里点一下即可下载；不需要时点「取消分享」。</div>
+    </div>
+
+    <!-- 接收的文件 -->
+    <div class="card full" data-page-node-id="awwK9d5XWbYekBbpKqM4gB">
+      <h2 data-page-node-id="jOiiv0Uqi0DSnNiKFkGDuM"><span class="dot" data-page-node-id="pu3sDHigH1vdLGjXkvs8D8"></span>已接收的文件</h2>
+      <div class="toolbar" data-page-node-id="TLWcN6m2QuIN5RMyZ2KkaJ">
+        <button class="btn-ghost" id="refresh" data-page-node-id="ycyppotTU7F6kRW7ZtBE56">刷新</button>
+        <button class="btn-blue" id="openfolder" data-page-node-id="2Lr9dr7BcSIwygE873EnT0">打开接收目录</button>
+      </div>
+      <div id="files" class="filelist" data-page-node-id="mW9Mge3qUeK9IzKwdbKu1U"></div>
+    </div>
+
+    <!-- 版本与更新 -->
+    <div class="card full" id="update">
+      <h2><span class="dot" style="background:var(--orange)"></span>版本与更新</h2>
+      <div class="verline">
+        <span class="vnum" id="verNum">…</span>
+        <span class="vmeta" id="verMeta"></span>
+      </div>
+      <div class="vercell">
+        <div>构建号<b id="verBuild">…</b></div>
+        <div>发行日期<b id="verDate">…</b></div>
+        <div>发布通道<b id="verChannel">…</b></div>
+        <div>更新源<b id="verFeed" style="font-weight:500">…</b></div>
+      </div>
+
+      <div class="toolbar" style="margin-top:14px">
+        <button class="btn-blue" id="checkupd">检查更新</button>
+        <button class="btn-ghost" id="opensettings">更新设置</button>
+        <button class="btn-ghost" id="openpkg" style="display:none">打开安装包</button>
+      </div>
+
+      <div class="updbox" id="updbox">
+        <div class="t" id="updtitle"></div>
+        <div id="upddesc"></div>
+        <ul id="updnotes"></ul>
+        <div class="prog" id="updprog" style="display:none"><i id="updprogi"></i></div>
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn-blue" id="dlbtn" style="display:none">下载更新</button>
+          <button class="btn-orange" id="installbtn" style="display:none">立即升级</button>
+        </div>
+      </div>
+      <div class="meta">升级会替换本机应用并自动重启；升级前的版本会备份到废纸篓，可随时回退。</div>
+    </div>
+  </div>
+
+  <footer id="footer" data-page-node-id="9cQpCBrtQSNHs88W5UqfVq">易码互传 · © 易码通科技</footer>
+</div>
+<input type="file" id="fileinput" multiple style="display:none" data-page-node-id="yToMAND4jlhTG8ENEjHC7A">
+<div class="toast" id="toast" data-page-node-id="zdUGbHuvhZjXOgIhjPbh2p"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let sendTarget = null;      // {ip, port, name}
+let sendFiles  = [];
+
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._tm); t._tm = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function fmtSize(n){
+  if(n<1024) return n+' B';
+  if(n<1048576) return (n/1024).toFixed(1)+' KB';
+  if(n<1073741824) return (n/1048576).toFixed(1)+' MB';
+  return (n/1073741824).toFixed(2)+' GB';
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+async function loadStatus(){
+  try{
+    const st = await (await fetch('/api/local/status')).json();
+    $('url').textContent = st.url;
+    document.title = '易码互传 · ' + st.port + ' 端口';
+    $('badge').textContent = '运行中 · ' + (st.version || '');
+    $('footer').textContent = st.version + ' · © 易码通科技';
+  }catch(e){
+    $('badge').textContent = '连接断开'; $('badge').classList.add('off');
+  }
+}
+
+// ---- 版本与更新 ----
+function fmtSize2(n){ return n ? fmtSize(n) : ''; }
+
+async function loadVersion(){
+  try{
+    const v = await (await fetch('/api/version')).json();
+    $('verNum').textContent = 'v' + v.version;
+    $('verMeta').textContent = (v.app||'') + ' · ' + (v.channel==='beta'?'测试版':'正式版');
+    $('verBuild').textContent = v.build || '-';
+    $('verDate').textContent = v.release_date || '-';
+    $('verChannel').textContent = v.channel || 'stable';
+  }catch(e){}
+}
+
+function showUpdBox(kind, title, desc, notes){
+  const box = $('updbox');
+  box.className = 'updbox show ' + (kind||'');
+  $('updtitle').textContent = title || '';
+  $('upddesc').textContent = desc || '';
+  const ul = $('updnotes'); ul.innerHTML = '';
+  (notes||[]).forEach(n=>{ const li=document.createElement('li'); li.textContent=n; ul.appendChild(li); });
+}
+
+function renderUpdate(st){
+  if(st.phase === 'idle'){
+    $('updbox').className = 'updbox';
+    return;
+  }
+  $('dlbtn').style.display   = (st.phase==='available') ? '' : 'none';
+  $('installbtn').style.display = (st.phase==='downloaded'||st.phase==='downloading') ? '' : 'none';
+  $('openpkg').style.display = st.file ? '' : 'none';
+  $('updprog').style.display = (st.phase==='downloading') ? '' : 'none';
+  $('updprogi').style.width = (st.percent||0) + '%';
+
+  const cur = (st.current && st.current.version) || '';
+  const m = st.manifest || {};
+  if(st.phase === 'checking')      showUpdBox('', '正在检查更新…', '请稍候');
+  else if(st.phase === 'uptodate') showUpdBox('ok', '已是最新版本', '当前 v'+cur+' 无需更新。最后检查：'+(st.checked_at?new Date(st.checked_at*1000).toLocaleTimeString():'-'));
+  else if(st.phase === 'available')
+    showUpdBox('new', '发现新版本 v'+(m.latest||''),
+      '当前 v'+cur+' → 最新 v'+(m.latest||'')+(m.size?('，安装包 '+fmtSize2(m.size)):'')+(m.release_date?('，发布于 '+m.release_date):''), m.notes);
+  else if(st.phase === 'downloading')
+    showUpdBox('new', '正在下载 v'+(m.latest||''), '已完成 '+(st.percent||0)+'%');
+  else if(st.phase === 'downloaded')
+    showUpdBox('new', 'v'+(m.latest||'')+' 已下载', '点击「立即升级」将替换应用并自动重启。', m.notes);
+  else if(st.phase === 'installing')
+    showUpdBox('ok', '正在升级…', '应用即将自动重启，稍后刷新本页面即可。');
+  else if(st.phase === 'error')
+    showUpdBox('err', '更新不可用', st.error || st.message || '未知错误');
+}
+
+async function pollUpdate(){
+  try{
+    const st = await (await fetch('/api/local/update')).json();
+    $('verFeed').textContent = st.feed || '未配置';
+    renderUpdate(st);
+    return st;
+  }catch(e){ return null; }
+}
+
+$('checkupd').onclick = async ()=>{
+  if(!$('verFeed').textContent || $('verFeed').textContent === '未配置' ||
+     $('verFeed').textContent === '…'){
+    toast('请先在更新设置里填写更新源地址');
+  }
+  showUpdBox('', '正在检查更新…', '');
+  await fetch('/api/local/update/check',{method:'POST'});
+  let n = 0;
+  const t = setInterval(async ()=>{
+    const st = await pollUpdate();
+    if(!st || (st.phase!=='checking' && st.phase!=='idle') || ++n>25) clearInterval(t);
+  }, 700);
+};
+$('dlbtn').onclick = async ()=>{
+  await fetch('/api/local/update/download',{method:'POST'});
+  toast('开始下载更新包…');
+  const t = setInterval(async ()=>{ const st = await pollUpdate();
+    if(st && st.phase!=='downloading'){ clearInterval(t); if(st.phase==='downloaded') toast('下载完成，可立即升级'); } }, 800);
+};
+$('installbtn').onclick = async ()=>{
+  if(!confirm('立即升级？应用会退出并自动重启，升级前的版本会备份到废纸篓。')) return;
+  const r = await (await fetch('/api/local/update/install',{method:'POST'})).json();
+  toast(r.message || '已开始升级');
+};
+$('openpkg').onclick = async ()=>{
+  await fetch('/api/local/update/open',{method:'POST'});
+  toast('已在访达中显示安装包');
+};
+$('opensettings').onclick = ()=>{ location.href = '/settings'; };
+
+async function loadFiles(){
+  try{
+    const list = await (await fetch('/files')).json();
+    const box = $('files');
+    if(!list.length){ box.innerHTML = '<div class="empty">暂无文件 —— 手机传上来的会出现在这里</div>'; return; }
+    box.innerHTML = '';
+    for(const f of list){
+      const row = document.createElement('div'); row.className='fitem';
+      row.innerHTML =
+        '<span class="name">'+esc(f.name)+'</span>'+
+        '<span class="size">'+fmtSize(f.size)+'</span>'+
+        '<button class="btn-blue" data-act="dl">下载</button>'+
+        '<button class="btn-orange" data-act="send">发给手机</button>'+
+        '<button class="btn-ghost" data-act="reveal">显示</button>'+
+        '<button class="btn-red" data-act="del">删除</button>';
+      row.querySelector('[data-act=dl]').onclick = ()=> location.href = '/download/'+encodeURIComponent(f.name);
+      row.querySelector('[data-act=send]').onclick = async ()=>{
+        await shareToPhone({names:[f.name]}, '「'+f.name+'」');
+      };
+      row.querySelector('[data-act=reveal]').onclick = async ()=>{
+        await fetch('/api/local/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name})});
+      };
+      row.querySelector('[data-act=del]').onclick = async ()=>{
+        if(!confirm('删除文件「'+f.name+'」？')) return;
+        await fetch('/delete/'+encodeURIComponent(f.name),{method:'DELETE'});
+        loadFiles();
+      };
+      box.appendChild(row);
+    }
+  }catch(e){}
+}
+
+// ---- 发送文件到手机 ----
+async function shareToPhone(payload, label){
+  try{
+    const r = await (await fetch('/api/share',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    })).json();
+    if(!r.ok){ toast('分享失败：'+(r.error||'未知')); return false; }
+    const n = (r.added||[]).length, bad = (r.failed||[]).length;
+    if(n) toast('已分享 '+n+' 个文件到手机可下载'+(bad?('，'+bad+' 个失败'):''));
+    else if(bad) toast('分享失败：文件不存在或不可读');
+    loadShared();
+    return n > 0;
+  }catch(e){
+    toast('分享失败：'+e);
+    return false;
+  }
+}
+
+async function loadShared(){
+  try{
+    const list = await (await fetch('/api/shared')).json();
+    const box = $('shared');
+    $('unshareall').style.display = list.length ? '' : 'none';
+    if(!list.length){
+      box.innerHTML = '<div class="empty">暂无分享中的文件 —— 点上方「选择文件」开始发送</div>';
+      return;
+    }
+    box.innerHTML = '';
+    for(const f of list){
+      const row = document.createElement('div'); row.className='fitem';
+      row.innerHTML =
+        '<span class="name">'+esc(f.name)+'</span>'+
+        '<span class="size">'+fmtSize(f.size)+'</span>'+
+        '<button class="btn-ghost" data-act="reveal">显示</button>'+
+        '<button class="btn-red" data-act="unshare">取消分享</button>';
+      row.querySelector('[data-act=reveal]').onclick = async ()=>{
+        await fetch('/api/local/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:f.path})});
+      };
+      row.querySelector('[data-act=unshare]').onclick = async ()=>{
+        await fetch('/api/share/'+encodeURIComponent(f.id),{method:'DELETE'});
+        loadShared();
+      };
+      box.appendChild(row);
+    }
+  }catch(e){}
+}
+
+$('pick').onclick = async ()=>{
+  const btn = $('pick');
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '选择中…';
+  try{
+    const r = await (await fetch('/api/local/pick-files',{
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}',
+    })).json();
+    if(r.cancelled){ /* 用户取消，静默 */ }
+    else if(r.ok && r.paths && r.paths.length){
+      await shareToPhone({paths:r.paths}, r.paths.length+' 个文件');
+    }else{
+      toast('选择失败：'+(r.error||'未知'));
+    }
+  }catch(e){
+    toast('选择失败：'+e);
+  }finally{
+    btn.disabled = false; btn.textContent = old;
+  }
+};
+
+$('unshareall').onclick = async ()=>{
+  if(!confirm('取消分享全部文件？手机端将不再显示。')) return;
+  try{
+    const list = await (await fetch('/api/shared')).json();
+    for(const f of list){
+      await fetch('/api/share/'+encodeURIComponent(f.id),{method:'DELETE'});
+    }
+    toast('已全部取消分享');
+    loadShared();
+  }catch(e){ toast('操作失败：'+e); }
+};
+
+async function loadPeers(){
+  try{
+    const peers = await (await fetch('/api/peers')).json();
+    const box = $('peers');
+    if(!peers.length){ box.innerHTML = '<div class="empty">未发现其它设备 —— 对方电脑也运行易码互传后出现在这里</div>'; return; }
+    box.innerHTML = '';
+    for(const p of peers){
+      const row = document.createElement('div'); row.className='peer';
+      row.innerHTML =
+        '<span class="dot"></span>'+
+        '<span class="pname">'+esc(p.name)+'</span>'+
+        '<span class="pip">'+esc(p.ip)+':'+p.port+'</span>'+
+        '<button class="btn-orange">发文件</button>';
+      row.querySelector('button').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
+      box.appendChild(row);
+    }
+  }catch(e){}
+}
+
+$('fileinput').addEventListener('change', async e=>{
+  const files = [...e.target.files]; e.target.value='';
+  if(!sendTarget || !files.length) return;
+  const p = sendTarget;
+  for(const f of files){
+    try{
+      toast('正在发送「'+f.name+'」到 '+p.name+'…');
+      await new Promise((ok,bad)=>{
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST','http://'+p.ip+':'+p.port+'/upload?name='+encodeURIComponent(f.name));
+        xhr.upload.onload = ok; xhr.onerror = bad;
+        xhr.ontimeout = bad;
+        xhr.send(f);
+      });
+      toast('已发送「'+f.name+'」到 '+p.name);
+    }catch(err){
+      toast('发送「'+f.name+'」失败：设备不可达');
+    }
+  }
+});
+
+$('refresh').onclick = ()=>{ loadFiles(); loadPeers(); };
+$('openfolder').onclick = async ()=>{
+  await fetch('/api/local/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+};
+$('copy').onclick = async ()=>{
+  try{
+    await fetch('/api/local/copy',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:$('url').textContent})});
+    toast('已复制连接地址');
+  }catch(e){
+    try{ await navigator.clipboard.writeText($('url').textContent); toast('已复制连接地址'); }
+    catch(e2){ toast('复制失败，请手动选择复制'); }
+  }
+};
+
+loadStatus(); loadFiles(); loadPeers(); loadVersion(); pollUpdate(); loadShared();
+setInterval(loadPeers, 5000);
+setInterval(loadFiles, 8000);
+setInterval(loadStatus, 8000);
+setInterval(pollUpdate, 6000);
+setInterval(loadShared, 5000);
+</script>
+</body>
+</html>

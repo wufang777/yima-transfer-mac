@@ -1,0 +1,34 @@
+# ---- 构建产物（体积大，且可完全由脚本重建）----
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- 发布物（走 release.sh 产出，不进代码仓）----
+*.dmg
+*.pkg
+
+# ---- 运行时数据 ----
+config.json
+received/
+*.log
+*连接二维码.png
+
+# ---- 本地备份 / 归档 ----
+*.bak
+*备份*
+installed-backup/
+old/
+
+# ---- macOS ----
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
