@@ -88,7 +88,7 @@ if [ "$CHECK_ONLY" = "1" ]; then
     403) echo "    403 ✗ Bucket 不是公共读，客户端会拉不到！"
          echo "          到 OSS 控制台把 Bucket 读写权限改成「公共读」，或执行："
          echo "          $OSSUTIL set-acl oss://${BUCKET} public-read -e $ENDPOINT" ;;
-    "")  echo "    连接失败 —— 检查网络或 ENDPOINT 是否写对（$ENDPOINT）" ;;
+    "")  echo "    连接失败 —— 检查网络或 ENDPOINT 是否写对（${ENDPOINT}）" ;;
     *)   echo "    HTTP $CODE —— 需要人工看一眼" ;;
   esac
   echo ""
@@ -118,7 +118,7 @@ if [ "$REAL_SHA" != "$SHA" ]; then
   exit 1
 fi
 echo ""
-echo "==> 待发布 $TAG（构建 $BUILD）"
+echo "==> 待发布 ${TAG}（构建 ${BUILD}）"
 echo "    $DMG  ${SIZE} 字节"
 
 # ---- 上传 ----

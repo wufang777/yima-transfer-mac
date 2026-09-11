@@ -59,7 +59,7 @@ if [ "$REAL_SHA" != "$SHA" ]; then
   echo "        实际：$REAL_SHA"
   exit 1
 fi
-echo "==> 待发布 $TAG（构建 $BUILD）"
+echo "==> 待发布 ${TAG}（构建 ${BUILD}）"
 echo "    安装包：$(basename "$DMG")  ${SIZE} 字节"
 
 # ---- 2. 取得令牌 ----
