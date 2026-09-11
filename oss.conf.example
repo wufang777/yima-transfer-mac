@@ -1,0 +1,31 @@
+# ============================================================
+# 易码互传 · OSS 分发配置
+#
+# 用法：cp oss.conf.example oss.conf  然后按下面说明改
+#
+# ⚠️ AccessKey ID / Secret **不要**写在这个文件里。
+#    凭据由 ossutil 自己保管在 ~/.ossutilconfig（执行 ossutil config 生成），
+#    这个 oss.conf 只放非机密的路径信息，可以安全地进版本库。
+# ============================================================
+
+# Bucket 名称 —— 只写名字，不要带 oss:// 前缀
+BUCKET="yima-transfer"
+
+# Bucket 所在地域的外网 Endpoint
+# 常见取值：
+#   华东1（杭州）  oss-cn-hangzhou.aliyuncs.com
+#   华东2（上海）  oss-cn-shanghai.aliyuncs.com
+#   华南1（深圳）  oss-cn-shenzhen.aliyuncs.com
+#   华北2（北京）  oss-cn-beijing.aliyuncs.com
+# 全部地域见：https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints
+# 只能填 Bucket 实际所在地域的 Endpoint，填错会 404 / 签名错误。
+ENDPOINT="oss-cn-hangzhou.aliyuncs.com"
+
+# 目录前缀 —— 安装包与 version.json 都放在这个「目录」下
+# 最终公网地址形如：https://<bucket>.<endpoint>/yima/version.json
+PREFIX="yima"
+
+# 可选：绑定了自定义域名 / CDN 加速域名时填这里，会作为对外下载地址
+# 留空则使用 OSS 默认域名（https://<bucket>.<endpoint>）
+# 例：PUBLIC_DOMAIN="https://dl.yima.example.com"
+PUBLIC_DOMAIN=""

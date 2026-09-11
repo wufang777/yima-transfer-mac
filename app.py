@@ -39,8 +39,8 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.3.1"
-APP_BUILD = "20260910"
+APP_VERSION_NUM = "1.4.0"
+APP_BUILD = "20260911"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -1610,6 +1610,204 @@ def _restart_and_exit():
     os._exit(0)
 
 
+# ---------- 启动闪屏（双击图标后的视觉反馈）----------
+def _splash_enabled():
+    """启动闪屏可用性探测：AppKit 在（rumps 依赖 pyobjc，正常必然在）就启用。"""
+    try:
+        import AppKit  # noqa
+        import Foundation  # noqa
+        return True
+    except Exception:
+        return False
+
+
+class _Splash:
+    """启动闪屏：无边框圆角小窗 —— 品牌图标 + 标题 + 状态文案 + 转圈动画。
+
+    生命周期（全部必须在主线程调用，AppKit 约束）：
+        s = _Splash(); s.show()
+        s.pump() × N          ← 泵事件，驱动转圈动画与淡入
+        s.set_text(...)       ← 更新状态文案
+        s.finish()            ← 保证最少停留时长后淡出关闭
+    """
+
+    W, H = 300, 148
+
+    def __init__(self):
+        self._win = None
+        self._text = None
+        self._spin = None
+        self._alpha = 0.0
+        self._shown_at = 0.0
+        self._build()
+
+    def _build(self):
+        from AppKit import (
+            NSWindow, NSVisualEffectView, NSTextField, NSImageView, NSImage,
+            NSProgressIndicator, NSColor, NSFont, NSMakeRect, NSMakeSize,
+            NSBorderlessWindowMask, NSBackingStoreBuffered, NSFloatingWindowLevel,
+            NSWindowCollectionBehaviorCanJoinAllSpaces, NSTextAlignmentCenter,
+            NSControlSizeSmall, NSProgressIndicatorSpinningStyle,
+            NSFontWeightSemibold, NSFontWeightRegular,
+            NSVisualEffectMaterialWindowBackground, NSVisualEffectStateActive,
+            NSVisualEffectBlendingModeBehindWindow,
+        )
+
+        rect = NSMakeRect(0, 0, self.W, self.H)
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            rect, NSBorderlessWindowMask, NSBackingStoreBuffered, False)
+        win.setLevel_(NSFloatingWindowLevel)          # 压在普通窗口之上
+        win.setOpaque_(False)
+        win.setBackgroundColor_(NSColor.clearColor())
+        win.setHasShadow_(True)
+        win.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces)
+        win.setReleasedWhenClosed_(False)
+        win.center()
+
+        # 毛玻璃卡片：跟随系统浅色/深色模式
+        fx = NSVisualEffectView.alloc().initWithFrame_(rect)
+        fx.setMaterial_(NSVisualEffectMaterialWindowBackground)
+        fx.setState_(NSVisualEffectStateActive)
+        fx.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
+        fx.setWantsLayer_(True)
+        try:
+            fx.layer().setCornerRadius_(14.0)
+            fx.layer().setMasksToBounds_(True)
+        except Exception:
+            pass
+        win.setContentView_(fx)
+
+        # 品牌图标
+        try:
+            if ICON_PNG.exists():
+                img = NSImage.alloc().initWithContentsOfFile_(str(ICON_PNG))
+                if img is not None:
+                    img.setSize_(NSMakeSize(48, 48))
+                    iv = NSImageView.alloc().initWithFrame_(NSMakeRect(126, 82, 48, 48))
+                    iv.setImage_(img)
+                    fx.addSubview_(iv)
+        except Exception:
+            pass
+
+        fx.addSubview_(self._label(NSMakeRect(0, 58, self.W, 18), APP_NAME, 13.0,
+                                   NSFontWeightSemibold, NSColor.labelColor()))
+        self._text = self._label(NSMakeRect(0, 38, self.W, 14), "正在启动服务…", 11.0,
+                                 NSFontWeightRegular, NSColor.secondaryLabelColor())
+        fx.addSubview_(self._text)
+
+        spin = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(139, 8, 22, 22))
+        spin.setStyle_(NSProgressIndicatorSpinningStyle)
+        spin.setControlSize_(NSControlSizeSmall)
+        spin.setDisplayedWhenStopped_(True)
+        spin.startAnimation_(None)
+        self._spin = spin
+        fx.addSubview_(spin)
+
+        self._win = win
+
+    @staticmethod
+    def _label(frame, text, size, weight, color):
+        from AppKit import NSTextField, NSTextAlignmentCenter, NSFont
+        tf = NSTextField.alloc().initWithFrame_(frame)
+        tf.setStringValue_(text)
+        tf.setBezeled_(False)
+        tf.setDrawsBackground_(False)
+        tf.setEditable_(False)
+        tf.setSelectable_(False)
+        tf.setAlignment_(NSTextAlignmentCenter)
+        tf.setFont_(NSFont.systemFontOfSize_weight_(size, weight))
+        tf.setTextColor_(color)
+        return tf
+
+    def show(self):
+        self._shown_at = time.time()
+        self._alpha = 0.0
+        self._win.setAlphaValue_(0.0)
+        self._win.orderFrontRegardless()
+
+    def set_text(self, s):
+        if self._text is not None:
+            self._text.setStringValue_(s)
+
+    def pump(self, interval=0.05):
+        """手动泵一次 AppKit 事件（转圈动画与淡入依赖这里）。仅限主线程。"""
+        if self._win is None:
+            return
+        from AppKit import NSApplication, NSEventMaskAny, NSDefaultRunLoopMode
+        from Foundation import NSDate
+        app = NSApplication.sharedApplication()
+        ev = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
+            NSEventMaskAny, NSDate.dateWithTimeIntervalSinceNow_(interval),
+            NSDefaultRunLoopMode, True)
+        if ev is not None:
+            app.sendEvent_(ev)
+        if self._alpha < 1.0:
+            self._alpha = min(1.0, self._alpha + 0.2)
+            self._win.setAlphaValue_(self._alpha)
+
+    def finish(self, min_total=1.2):
+        """保证总停留不少于 min_total 秒（让「正在打开浏览器…」能被看到），随后淡出关闭。"""
+        if self._win is None:
+            return
+        left = min_total - (time.time() - self._shown_at)
+        while left > 0:
+            step = min(0.05, left)
+            self.pump(step)
+            left -= step
+        a = 1.0
+        while a > 0.0:
+            a = max(0.0, a - 0.12)
+            self._win.setAlphaValue_(a)
+            self.pump(0.03)
+        try:
+            self._spin.stopAnimation_(None)
+            self._win.orderOut_(None)
+            self._win.close()
+        except Exception:
+            pass
+        self._win = None
+
+
+def _bootstrap_server(from_restart, on_stage=None):
+    """准备网络 → 杀旧实例 → 绑端口 → 起服务 → 局域网广播 → 生成二维码。
+
+    返回 (server, qr_path)；端口始终绑不上时返回 (None, None)。
+    on_stage(文案)：可选，用于闪屏同步启动阶段（只在后台线程调用）。
+    """
+    if on_stage:
+        on_stage("正在准备网络…")
+    rebuild_connect_url()
+    _log("[启动] %s | darwin | frozen=%s" % (APP_VERSION_FULL, getattr(sys, "frozen", False)))
+
+    # 单实例：先结束旧实例再绑定
+    if from_restart:
+        _kill_port_occupant(PORT)
+        time.sleep(0.6)
+    else:
+        _kill_other_instances()
+
+    if on_stage:
+        on_stage("正在启动服务…")
+    # 绑定 HTTP 端口（旧实例刚杀/刚升级完，端口释放需要时间，重试 20 次约 20 秒）
+    server = None
+    for _attempt in range(20):
+        try:
+            ThreadingHTTPServer.allow_reuse_address = False
+            server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+            break
+        except OSError:
+            if _attempt == 2:
+                # 可能是上一实例/升级残留，再清一次
+                _kill_other_instances()
+            time.sleep(1.0)
+    if server is None:
+        return None, None
+
+    start_discovery()
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, save_qr_image(CONNECT_URL)
+
+
 # ---------- 菜单栏（rumps / NSStatusItem 原生）----------
 def run_menu_bar(qr_path):
     import rumps
@@ -1749,39 +1947,6 @@ def main():
         uninstall_autostart()
         return
 
-    global CONNECT_URL
-    rebuild_connect_url()
-    _log("[启动] %s | darwin | frozen=%s" % (APP_VERSION_FULL, getattr(sys, "frozen", False)))
-
-    # 单实例：先结束旧实例再绑定
-    if args.from_restart:
-        _kill_port_occupant(PORT)
-        time.sleep(0.6)
-    else:
-        _kill_other_instances()
-
-    # 绑定 HTTP 端口（旧实例刚杀/刚升级完，端口释放需要时间，重试 20 次约 20 秒）
-    server = None
-    for _attempt in range(20):
-        try:
-            ThreadingHTTPServer.allow_reuse_address = False
-            server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-            break
-        except OSError:
-            if _attempt == 2:
-                # 可能是上一实例/升级残留，再清一次
-                _kill_other_instances()
-            time.sleep(1.0)
-    if server is None:
-        _log("[FATAL] 端口 %d 被占用，启动失败" % PORT)
-        _show_port_conflict_dialog(PORT)
-        sys.exit(1)
-
-    start_discovery()
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-
-    qr_path = save_qr_image(CONNECT_URL)
-
     # 启动后自动检查更新（后台，不阻塞；仅在已配置更新源时）
     if CONFIG.get("update_check_on_start", True) and update_feed_url():
         def _auto_check():
@@ -1793,6 +1958,11 @@ def main():
         threading.Thread(target=_auto_check, daemon=True).start()
 
     if args.console:
+        server, qr_path = _bootstrap_server(args.from_restart)
+        if server is None:
+            _log("[FATAL] 端口 %d 被占用，启动失败" % PORT)
+            _show_port_conflict_dialog(PORT)
+            sys.exit(1)
         print("=" * 56)
         print("%s 已启动（终端模式）" % APP_VERSION_FULL)
         print("  本机控制台 : http://localhost:%d/console" % PORT)
@@ -1816,11 +1986,68 @@ def main():
         _notify(APP_NAME, "缺少 rumps 组件，无法启动菜单栏。请重新打包或 pip install rumps")
         sys.exit(1)
 
-    if CONFIG.get("open_console_on_start", True) and not args.no_open:
+    open_console = CONFIG.get("open_console_on_start", True) and not args.no_open
+
+    boot = {"done": False, "server": None, "qr": None, "fatal": None, "stage": ""}
+
+    def _boot():
+        def _stage(s):
+            boot["stage"] = s
+        try:
+            server, qr = _bootstrap_server(args.from_restart, on_stage=_stage)
+            if server is None:
+                boot["fatal"] = "port"
+            else:
+                boot["server"], boot["qr"] = server, qr
+        except Exception as exc:
+            boot["fatal"] = exc
+        finally:
+            boot["done"] = True
+
+    # 启动闪屏：起服务期间给用户视觉反馈；创建失败自动回退同步启动，不影响可用性
+    splash = None
+    if _splash_enabled():
+        try:
+            splash = _Splash()
+            splash.show()
+        except Exception as exc:
+            _log("[闪屏] 创建失败，回退同步启动：%r" % (exc,))
+            splash = None
+
+    if splash:
+        threading.Thread(target=_boot, daemon=True).start()
+        last_stage = None
+        while not boot["done"]:
+            stage = boot["stage"]
+            if stage and stage != last_stage:
+                splash.set_text(stage)
+                last_stage = stage
+            splash.pump()
+    else:
+        _boot()
+
+    if boot["fatal"]:
+        if splash:
+            splash.finish(min_total=0.2)
+        if boot["fatal"] == "port":
+            _log("[FATAL] 端口 %d 被占用，启动失败" % PORT)
+            _show_port_conflict_dialog(PORT)
+        else:
+            _log("[FATAL] 启动异常：%r" % (boot["fatal"],))
+            _notify(APP_NAME, "启动失败：%s" % boot["fatal"])
+        sys.exit(1)
+
+    if splash:
+        splash.set_text("正在打开浏览器…" if open_console else "启动完成")
+
+    if open_console:
         _open_path("http://localhost:%d/console" % PORT)
 
+    if splash:
+        splash.finish(min_total=1.2)   # 「正在打开浏览器…」至少停留一秒多再淡出
+
     _notify(APP_NAME, "服务已启动：%s" % CONNECT_URL)
-    run_menu_bar(qr_path)
+    run_menu_bar(boot["qr"])
 
 
 if __name__ == "__main__":
