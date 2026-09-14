@@ -443,6 +443,12 @@ def _discovery_listen():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # SO_REUSEPORT：同机多实例调试时让每个实例都能收到广播（Windows 无此选项）
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except Exception:
+                pass
         s.bind(("0.0.0.0", DISCOVERY_PORT))
     except Exception:
         return

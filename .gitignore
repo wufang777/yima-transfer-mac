@@ -32,3 +32,9 @@ old/
 .vscode/
 .idea/
 *.swp
+
+# Windows 版构建产物
+win/build/
+win/dist/
+win/icon.ico
+win/__pycache__/

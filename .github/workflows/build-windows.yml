@@ -1,0 +1,50 @@
+name: build-windows
+
+on:
+  workflow_dispatch:            # 允许手动触发（gh workflow run build-windows）
+  push:
+    tags: ["v*"]                # 推送 v 开头的 tag 自动构建
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+
+      - name: 安装依赖
+        run: pip install pyinstaller pystray Pillow segno
+
+      - name: 生成 ICO 图标
+        run: |
+          python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('win/icon.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+
+      - name: PyInstaller 打包
+        run: pyinstaller win/yima_win.spec
+
+      - name: 冒烟测试（headless 起服务并验证 API）
+        run: |
+          $p = Start-Process -FilePath "dist/yima-transfer.exe" -ArgumentList "--headless","--port","8099","--no-open" -PassThru
+          Start-Sleep -Seconds 10
+          $r = Invoke-WebRequest -Uri "http://127.0.0.1:8099/api/version" -UseBasicParsing
+          Write-Output $r.Content
+          if ($r.Content -notmatch 'windows') { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; exit 1 }
+          $f = Invoke-WebRequest -Uri "http://127.0.0.1:8099/files" -UseBasicParsing
+          Write-Output $f.Content
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+
+      - name: 打包 zip
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          if ([string]::IsNullOrEmpty($tag) -or "${{ github.ref_name }}".StartsWith("refs")) { $tag = "dev" }
+          Compress-Archive -Path "dist/yima-transfer.exe" -DestinationPath "dist/yima-transfer-win64-$tag.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yima-transfer-win64
+          path: dist/*.zip
+          retention-days: 30
