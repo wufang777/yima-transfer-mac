@@ -2,6 +2,7 @@
 build/
 dist/
 *.spec
+!win/yima_win.spec
 __pycache__/
 *.pyc
 *.pyo
