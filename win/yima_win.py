@@ -37,6 +37,23 @@ from pathlib import Path
 IS_WIN = (os.name == "nt")
 IS_MAC = (sys.platform == "darwin")
 
+
+class _NullWriter:
+    """PyInstaller --noconsole 下 sys.stdout/stderr 为 None，兜底防崩。"""
+
+    def write(self, *_a, **_k):
+        pass
+
+    def flush(self):
+        pass
+
+
+if getattr(sys, "frozen", False):
+    if sys.stdout is None:
+        sys.stdout = _NullWriter()
+    if sys.stderr is None:
+        sys.stderr = _NullWriter()
+
 # ---- 品牌与版本（与 Mac 版保持同一口径）----
 APP_NAME = "易码互传"
 APP_COMPANY = "易码通科技"
@@ -587,6 +604,13 @@ def _safe_path(name: str):
 # ---------- HTTP 服务（与 Mac 版同一套端点）----------
 class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_VERSION
+
+    def log_message(self, fmt, *args):
+        """--noconsole 下 stderr 是 None，改写文件日志（否则每个请求都会崩）。"""
+        try:
+            _log("%s - %s" % (self.address_string(), fmt % args))
+        except Exception:
+            pass
 
     def _is_local(self):
         host = self.client_address[0]
