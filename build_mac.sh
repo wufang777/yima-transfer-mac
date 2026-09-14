@@ -105,7 +105,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>LSMinimumSystemVersion</key>    <string>10.13</string>
     <key>NSHighResolutionCapable</key>   <true/>
-    <key>LSUIElement</key>               <true/>
     <key>CFBundleIconFile</key>          <string>AppIcon</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>易码互传需要在局域网内与手机和其它电脑传输文件。</string>
@@ -113,7 +112,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 codesign --force --sign - "$APP"
-echo "  Info.plist 已覆盖（LSUIElement=true：菜单栏应用，不出现在 Dock）"
+echo "  Info.plist 已覆盖（常规应用：Dock 与强制退出列表均可见）"
 plutil -lint "$APP/Contents/Info.plist"
 
 # ---- 关键校验：二进制内的版本号必须与 app.py 一致 ----

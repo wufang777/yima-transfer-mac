@@ -39,8 +39,8 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.4.0"
-APP_BUILD = "20260911"
+APP_VERSION_NUM = "1.5.0"
+APP_BUILD = "20260914"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -1808,6 +1808,127 @@ def _bootstrap_server(from_restart, on_stage=None):
     return server, save_qr_image(CONNECT_URL)
 
 
+# ---------- 控制面板窗口（Dock / 强制退出可见，可一键关闭服务）----------
+try:
+    from Foundation import NSObject as _NSObject
+except ImportError:  # 无 pyobjc 的环境退化为普通类（仅影响面板，菜单栏本就不可用）
+    _NSObject = object
+
+_PANEL_CONTROLLER = [None]  # 单例引用（容器避免 global 声明）
+
+
+class _PanelController(_NSObject):
+    """原生控制面板：显示运行状态，提供「打开控制台 / 关闭服务」按钮。"""
+
+    # 属性（_cb/_win）在实例化后由 show_control_panel 赋值 ——
+    # 不给 pyobjc 类写自定义 init：零参 super().init() 在此环境不可用。
+
+    def _build(self):
+        from AppKit import (
+            NSWindow, NSButton, NSColor, NSMakeRect,
+            NSTitledWindowMask, NSClosableWindowMask, NSMiniaturizableWindowMask,
+            NSBackingStoreBuffered, NSRoundedBezelStyle,
+            NSFontWeightSemibold, NSFontWeightRegular,
+        )
+        W, H = 340, 212
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, W, H),
+            NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask,
+            NSBackingStoreBuffered, False)
+        win.setTitle_("%s · 控制面板" % APP_NAME)
+        win.setReleasedWhenClosed_(False)
+        win.center()
+
+        title = _Splash._label(NSMakeRect(0, 158, W, 22),
+                               "%s · 服务运行中" % APP_NAME, 13.0,
+                               NSFontWeightSemibold, NSColor.labelColor())
+        info = _Splash._label(NSMakeRect(0, 102, W, 50),
+                              "连接地址：%s\n接收目录：%s" % (CONNECT_URL, RECEIVE_DIR),
+                              10.5, NSFontWeightRegular, NSColor.secondaryLabelColor())
+        ver = _Splash._label(NSMakeRect(0, 80, W, 16), APP_VERSION_FULL, 10.0,
+                             NSFontWeightRegular, NSColor.tertiaryLabelColor())
+        cv = win.contentView()
+        cv.addSubview_(title)
+        cv.addSubview_(info)
+        cv.addSubview_(ver)
+
+        b_open = NSButton.alloc().initWithFrame_(NSMakeRect(26, 26, 138, 34))
+        b_open.setTitle_("打开控制台")
+        b_open.setBezelStyle_(NSRoundedBezelStyle)
+        b_open.setTag_(0)
+        b_open.setTarget_(self)
+        b_open.setAction_("panelAction:")
+        cv.addSubview_(b_open)
+
+        b_quit = NSButton.alloc().initWithFrame_(NSMakeRect(176, 26, 138, 34))
+        b_quit.setTitle_("关闭服务")
+        b_quit.setBezelStyle_(NSRoundedBezelStyle)
+        b_quit.setTag_(1)
+        b_quit.setTarget_(self)
+        b_quit.setAction_("panelAction:")
+        try:  # 红字提示这是退出操作
+            from Foundation import NSMakeRange
+            from AppKit import (NSMutableAttributedString,
+                                NSForegroundColorAttributeName)
+            attr = NSMutableAttributedString.alloc().initWithString_("关闭服务")
+            attr.addAttribute_value_range_(NSForegroundColorAttributeName,
+                                           NSColor.systemRedColor(),
+                                           NSMakeRange(0, 4))
+            b_quit.setAttributedTitle_(attr)
+        except Exception:
+            pass
+        cv.addSubview_(b_quit)
+
+        win.setDelegate_(self)
+        self._win = win
+
+    def show(self):
+        from AppKit import NSApplication
+        if self._win is None:
+            self._build()
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self._win.makeKeyAndOrderFront_(None)
+
+    def panelAction_(self, sender):
+        cb = self._cb or {}
+        if sender.tag() == 1:
+            cb.get("quit")()
+        else:
+            cb.get("console")()
+
+    def windowWillClose_(self, notification):
+        self._win = None
+
+
+def show_control_panel(console_cb, quit_cb):
+    """打开（或前置）控制面板窗口。"""
+    if _PANEL_CONTROLLER[0] is None:
+        ctl = _PanelController.alloc().init()
+        ctl._cb = {"console": console_cb, "quit": quit_cb}
+        ctl._win = None
+        _PANEL_CONTROLLER[0] = ctl
+    _PANEL_CONTROLLER[0].show()
+
+
+def _install_dock_reopen(show_fn):
+    """rumps 的 NSApplication 委托是它内部的 NSApp 类；
+    给它补上 applicationShouldHandleReopen，点击 Dock 图标即弹出控制面板。"""
+    try:
+        import rumps.rumps as _rr
+
+        def _reopen(self, application, flag):
+            try:
+                show_fn()
+            except Exception as e:
+                _log("[面板] Dock 点击打开面板失败：%s" % e)
+            return True
+
+        _rr.NSApp.applicationShouldHandleReopen_hasVisibleWindows_ = _reopen
+        _log("[面板] Dock 点击已接管 → 控制面板")
+    except Exception as e:
+        _log("[面板] Dock 点击接管失败：%s" % e)
+
+
 # ---------- 菜单栏（rumps / NSStatusItem 原生）----------
 def run_menu_bar(qr_path):
     import rumps
@@ -1822,6 +1943,8 @@ def run_menu_bar(qr_path):
                 quit_button=None,
             )
             self.menu = [
+                rumps.MenuItem("控制面板…", callback=self.on_panel),
+                None,
                 rumps.MenuItem("打开控制台", callback=self.on_console),
                 rumps.MenuItem("打开手机连接页", callback=self.on_phone),
                 rumps.MenuItem("显示二维码", callback=self.on_qr),
@@ -1839,6 +1962,24 @@ def run_menu_bar(qr_path):
             self._last_url = CONNECT_URL
             # IP 变化看门狗：每 5 秒校验一次，变了就刷新二维码
             rumps.Timer(self._watch_ip, 5).start()
+            # 点击 Dock 图标 → 弹出控制面板
+            _install_dock_reopen(self.on_panel)
+
+        def on_panel(self, sender=None):
+            def _console():
+                _open_path("http://localhost:%d/console" % PORT)
+
+            def _quit():
+                _log("[退出] 用户从控制面板关闭服务")
+                rumps.quit_application()
+
+            try:
+                show_control_panel(_console, _quit)
+                _log("[面板] 控制面板已打开")
+            except Exception as e:
+                _log("[面板] 打开控制面板失败：%s" % e)
+                _notify(APP_NAME, "控制面板打开失败，可用菜单栏「打开控制台」")
+                _open_path("http://localhost:%d/console" % PORT)
 
         def _watch_ip(self, sender):
             try:
