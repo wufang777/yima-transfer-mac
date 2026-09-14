@@ -39,7 +39,7 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.5.0"
+APP_VERSION_NUM = "1.5.1"
 APP_BUILD = "20260914"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
@@ -335,6 +335,17 @@ def get_lan_ip():
     return "127.0.0.1"
 
 
+def _local_ipv4s():
+    """本机所有可用的局域网 IPv4（排除回环/链路本地/虚拟网段）。"""
+    seen, out = set(), []
+    for _iface, ip in _ifconfig_candidates():
+        if ip in seen or _bad_lan_ip(ip):
+            continue
+        seen.add(ip)
+        out.append(ip)
+    return out
+
+
 def rebuild_connect_url():
     global CONNECT_URL
     ip = get_lan_ip()
@@ -420,11 +431,23 @@ def _discovery_beacon():
         "port": PORT,
     }).encode("utf-8")
     while True:
-        for target in ("255.255.255.255", "<broadcast>"):
+        # 全局广播 + 逐网卡定向广播：绑定真实网卡发出，
+        # 避免有 VPN/代理 TUN 时广播走默认路由（虚拟网卡）出不去
+        jobs = [(None, "255.255.255.255")]
+        for ip in _local_ipv4s():
+            b = "%s.255" % ip.rsplit(".", 1)[0]
+            if (ip, b) not in jobs:
+                jobs.append((ip, b))
+        for bind_ip, target in jobs:
             s = None
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                if bind_ip:
+                    try:
+                        s.bind((bind_ip, 0))
+                    except Exception:
+                        pass
                 s.settimeout(1.0)
                 s.sendto(msg, (target, DISCOVERY_PORT))
             except Exception:
@@ -474,7 +497,9 @@ def _discovery_listen():
                 except Exception:
                     port = 0
                 if 1 <= port <= 65535:
+                    is_new = False
                     with PEER_LOCK:
+                        is_new = info["id"] not in PEERS
                         PEERS[info["id"]] = {
                             "id": info["id"],
                             "name": str(info.get("name") or "未知设备"),
@@ -482,6 +507,9 @@ def _discovery_listen():
                             "port": port,
                             "last_seen": now,
                         }
+                    if is_new:
+                        _log("[发现] 新设备 %s (%s:%s)" % (
+                            info.get("name") or "未知设备", addr[0], port))
         if now - last_prune >= 3:
             last_prune = now
             with PEER_LOCK:

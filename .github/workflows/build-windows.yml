@@ -37,11 +37,11 @@ jobs:
           Write-Output $f.Content
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 
-      - name: 打包 zip
+      - name: 打包 zip（exe + 防火墙放行脚本）
         run: |
           $tag = "${{ github.ref_name }}".TrimStart("v")
           if ([string]::IsNullOrEmpty($tag) -or "${{ github.ref_name }}".StartsWith("refs")) { $tag = "dev" }
-          Compress-Archive -Path "dist/yima-transfer.exe" -DestinationPath "dist/yima-transfer-win64-$tag.zip" -Force
+          Compress-Archive -Path "dist/yima-transfer.exe","win/防火墙放行.bat" -DestinationPath "dist/yima-transfer-win64-$tag.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:

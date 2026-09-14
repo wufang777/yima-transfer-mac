@@ -342,8 +342,23 @@ def _pick_files(folder_mode=False):
 
 # ---------- 局域网 IP ----------
 def _bad_lan_ip(ip):
-    return (not ip) or ip.startswith("127.") or ip.startswith("169.254.") \
-        or ip.startswith("0.") or ip == "::1"
+    """排除不可用于局域网互传的地址（与 Mac 版一致）。"""
+    if (not ip) or ip.startswith("127.") or ip.startswith("169.254.") \
+            or ip.startswith("0.") or ip == "::1":
+        return True
+    try:
+        a, b = (int(x) for x in ip.split(".")[:2])
+    except Exception:
+        return True
+    if a == 198 and 18 <= b <= 19:      # 198.18.0.0/15 代理 fake-IP（Surge/Clash 等）
+        return True
+    if a == 100 and 64 <= b <= 127:     # 100.64.0.0/10 CGNAT（Tailscale 等虚拟网）
+        return True
+    if a == 198 and b == 51:            # 文档保留段
+        return True
+    if a == 203 and b == 0:             # 文档保留段
+        return True
+    return False
 
 
 def get_lan_ip():
@@ -379,6 +394,32 @@ def local_ip_set():
     except Exception:
         pass
     ips.add(get_lan_ip())
+    # 兜底：解析 ipconfig 输出（主机名解析失败/多网卡/WSL 虚拟网卡等场景）
+    if os.name == "nt":
+        try:
+            out = subprocess.run(
+                ["ipconfig"], capture_output=True, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            text = None
+            for enc in ("gbk", "utf-8", "cp437"):
+                try:
+                    text = out.stdout.decode(enc)
+                    break
+                except Exception:
+                    continue
+            if text:
+                for line in text.splitlines():
+                    line = line.strip()
+                    if ("IPv4" in line or "IP Address" in line) and ":" in line:
+                        ip = line.rsplit(":", 1)[-1].strip()
+                        for junk in ("（首选）", "(preferred)", "(首选)"):
+                            ip = ip.replace(junk, "").strip()
+                        if _bad_lan_ip(ip):
+                            continue
+                        ips.add(ip)
+        except Exception:
+            pass
+    ips = {ip for ip in ips if not _bad_lan_ip(ip)}
     ips.update({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
     return ips
 
@@ -413,11 +454,23 @@ def _discovery_beacon():
         "port": PORT,
     }).encode("utf-8")
     while True:
-        for target in ("255.255.255.255", "<broadcast>"):
+        # 全局广播 + 逐网卡定向广播：绑定真实网卡发出，
+        # 避免有 VPN/虚拟网卡时广播走默认路由出不去
+        jobs = [(None, "255.255.255.255")]
+        for ip in local_ip_set():
+            b = "%s.255" % ip.rsplit(".", 1)[0]
+            if (ip, b) not in jobs:
+                jobs.append((ip, b))
+        for bind_ip, target in jobs:
             s = None
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                if bind_ip:
+                    try:
+                        s.bind((bind_ip, 0))
+                    except Exception:
+                        pass
                 s.settimeout(1.0)
                 s.sendto(msg, (target, DISCOVERY_PORT))
             except Exception:
@@ -465,7 +518,9 @@ def _discovery_listen():
                 except Exception:
                     port = 0
                 if 1 <= port <= 65535:
+                    is_new = False
                     with PEER_LOCK:
+                        is_new = info["id"] not in PEERS
                         PEERS[info["id"]] = {
                             "id": info["id"],
                             "name": str(info.get("name") or "未知设备"),
@@ -473,6 +528,9 @@ def _discovery_listen():
                             "port": port,
                             "last_seen": now,
                         }
+                    if is_new:
+                        _log("[发现] 新设备 %s (%s:%s)" % (
+                            info.get("name") or "未知设备", addr[0], port))
         if now - last_prune >= 3:
             last_prune = now
             with PEER_LOCK:
@@ -1134,6 +1192,46 @@ def run_tray(on_console, on_phone, on_qr, on_folder, on_restart, on_quit):
 
 
 # ---------- main ----------
+# ---------- Windows 防火墙自检 ----------
+def ensure_firewall_rules():
+    """确保防火墙放行本程序（入站 UDP 发现 + TCP 服务）。
+
+    netsh 添加规则需要管理员权限：普通权限下会失败，仅记日志，
+    并提示用户右键管理员运行「防火墙放行.bat」。
+    """
+    if not IS_WIN or not getattr(sys, "frozen", False):
+        return
+    exe = sys.executable
+
+    def _run(*args):
+        try:
+            return subprocess.run(
+                list(args), capture_output=True, timeout=15,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception:
+            return None
+
+    # 已有同名规则就不再重复添加
+    q = _run("netsh", "advfirewall", "firewall", "show", "rule",
+             "name=%s" % APP_NAME)
+    if q is not None and APP_NAME in (q.stdout or b"").decode("gbk", "ignore"):
+        _log("[防火墙] 规则已存在，跳过")
+        return
+    added = True
+    for suffix, proto in (("", "UDP"), ("HTTP", "TCP")):
+        r = _run("netsh", "advfirewall", "firewall", "add", "rule",
+                 "name=%s%s" % (APP_NAME, suffix),
+                 "dir=in", "action=allow", "enable=yes", "profile=any",
+                 "program=%s" % exe, "protocol=%s" % proto)
+        if r is None or r.returncode != 0:
+            added = False
+    if added:
+        _log("[防火墙] 已自动添加放行规则（UDP 发现 + TCP 服务）")
+    else:
+        _log("[防火墙] 自动放行失败（需要管理员权限）。"
+             "请右键「以管理员身份运行」安装目录下的 防火墙放行.bat")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="易码互传 · Windows 版")
@@ -1188,6 +1286,10 @@ def main():
     start_discovery()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     rebuild_connect_url()
+    try:
+        ensure_firewall_rules()
+    except Exception as e:
+        _log("[防火墙] 自检异常: %s" % e)
     qr_path = save_qr_image(CONNECT_URL)
     _log("[启动] %s Windows版 | frozen=%s | url=%s | dir=%s"
          % (APP_VERSION_FULL, getattr(sys, "frozen", False),
