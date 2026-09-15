@@ -400,8 +400,12 @@ def local_ip_set():
     if os.name == "nt":
         try:
             out = subprocess.run(
-                ["ipconfig"], capture_output=True, timeout=5,
+                [r"C:\Windows\System32\ipconfig.exe"], capture_output=True, timeout=5,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if not out.stdout:
+                out = subprocess.run(
+                    ["ipconfig"], capture_output=True, timeout=5,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             text = None
             for enc in ("gbk", "utf-8", "cp437"):
                 try:
@@ -619,6 +623,9 @@ def scan_lan(port=None, timeout=0.8, workers=128):
             "、".join(_lan_prefixes()), len(found),
             "、".join("%s(%s)" % (i.get("name") or i.get("app"), ip)
                       for ip, i in found)))
+    else:
+        _log("[扫描] %s 网段未发现其它设备（已探测 %d 个地址）" % (
+            "、".join(_lan_prefixes()), len(targets)))
     return [v for v in SCANNED.values()]
 
 

@@ -255,11 +255,16 @@ def _safe_path(name: str):
 # ---------- 局域网 IP 识别（macOS 专用，规避代理 fake-IP）----------
 def _ifconfig_candidates():
     """解析 ifconfig，返回 [(网卡名, IPv4)]。"""
-    try:
-        out = subprocess.run(
-            ["ifconfig"], capture_output=True, text=True, timeout=5
-        ).stdout
-    except Exception:
+    out = ""
+    for exe in ("/sbin/ifconfig", "/usr/sbin/ifconfig", "ifconfig"):
+        try:
+            r = subprocess.run([exe], capture_output=True, text=True, timeout=5)
+            if r.stdout:
+                out = r.stdout
+                break
+        except Exception:
+            continue
+    if not out:
         return []
     cands, cur = [], ""
     for line in out.splitlines():
@@ -337,13 +342,22 @@ def get_lan_ip():
 
 
 def _local_ipv4s():
-    """本机所有可用的局域网 IPv4（排除回环/链路本地/虚拟网段）。"""
+    """本机所有可用的局域网 IPv4（排除回环/链路本地/虚拟网段）。
+
+    打包环境下 ifconfig 可能不可用，故再用 get_lan_ip() 兜底。
+    """
     seen, out = set(), []
     for _iface, ip in _ifconfig_candidates():
         if ip in seen or _bad_lan_ip(ip):
             continue
         seen.add(ip)
         out.append(ip)
+    try:
+        fb = get_lan_ip()
+        if fb and fb not in seen and not _bad_lan_ip(fb):
+            out.append(fb)
+    except Exception:
+        pass
     return out
 
 
@@ -569,6 +583,7 @@ def scan_lan(port=None, timeout=0.8, workers=128):
             if ip not in mine:
                 targets.append(ip)
     if not targets:
+        _log("[扫描] 未取到本机网段（扫描跳过）—— 本机 IP: %s" % _local_ipv4s())
         return []
     found = []
     try:
@@ -598,6 +613,9 @@ def scan_lan(port=None, timeout=0.8, workers=128):
             "、".join(_lan_prefixes()), len(found),
             "、".join("%s(%s)" % (i.get("name") or i.get("app"), ip)
                       for ip, i in found)))
+    else:
+        _log("[扫描] %s 网段未发现其它设备（已探测 %d 个地址）" % (
+            "、".join(_lan_prefixes()), len(targets)))
     return [v for v in SCANNED.values()]
 
 
