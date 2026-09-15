@@ -27,6 +27,8 @@ import mimetypes
 import shutil
 import urllib.parse
 import urllib.request
+import http.client
+import errno as _errno
 import uuid
 import concurrent.futures
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,7 +42,7 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.6.0"
+APP_VERSION_NUM = "1.6.2"
 APP_BUILD = "20260915"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
@@ -555,6 +557,110 @@ def _lan_prefixes():
     return pres
 
 
+# ---------- 向其它设备发送文件（服务端代为转发）----------
+# 为什么不直接在网页里 fetch 对方 IP：浏览器跨域 POST 带文件时会先发
+# OPTIONS 预检，而且响应要带 CORS 头才让读；任何一环不满足，XHR 都只会
+# 抛出一个笼统的 onerror —— 界面看到的就是「设备不可达」，其实文件可能
+# 已经传过去了，也可能根本没发出去。改由本机服务端转发后：同源、错误
+# 原因准确（拒绝连接 / 超时 / 防火墙 / 对方拒收）、大文件流式不占内存。
+_REFUSED = {61, 111, 10061}            # ECONNREFUSED (macOS / Linux / Windows)
+_HOST_UNREACH = {65, 113, 10065}       # EHOSTUNREACH
+_NET_UNREACH = {51, 101, 10051}        # ENETUNREACH
+_TIMED_OUT = {60, 110, 10060}          # ETIMEDOUT
+
+
+def _peer_send_timeout(length):
+    """按体积给出超时：小文件别等太久，大文件又别中途掐断。"""
+    try:
+        mb = max(0.0, float(length) / 1048576.0)
+    except Exception:
+        mb = 0.0
+    return max(20.0, min(1800.0, 20.0 + mb * 8.0))
+
+
+def _peer_send_error(exc, port=None):
+    """把底层异常翻译成用户能看懂的一句话。"""
+    code = getattr(exc, "errno", None)
+    text = str(exc)
+    if code in _REFUSED or "refused" in text.lower():
+        return "对方程序没有在运行（或端口 %s 未对外开放）" % (port or PORT)
+    if isinstance(exc, (socket.timeout, TimeoutError)) or code in _TIMED_OUT:
+        return "连接超时 —— 多半是对方防火墙拦住了，请放行一次入站连接"
+    if code in _HOST_UNREACH:
+        return "对方主机不可达 —— 请确认两台设备连的是同一个局域网"
+    if code in _NET_UNREACH:
+        return "网络不可达 —— 本机似乎没有接入对方所在的局域网"
+    if isinstance(exc, socket.gaierror):
+        return "无法解析对方地址：%s" % text
+    return text or exc.__class__.__name__
+
+
+def forward_file_to_peer(ip, port, filename, length, rfile, chunk=262144):
+    """把 rfile 中的 length 字节流式转发到对方 /upload。
+
+    返回 (ok: bool, msg: str, sent: int)。msg 成功时是空串，失败时是原因。
+    """
+    port = int(port or PORT)
+    try:
+        length = int(length or 0)
+    except Exception:
+        length = 0
+    filename = os.path.basename(filename) or "upload.bin"
+    path = "/upload?name=" + urllib.parse.quote(filename)
+
+    conn = None
+    sent = 0
+    try:
+        conn = http.client.HTTPConnection(ip, port, timeout=_peer_send_timeout(length))
+        conn.putrequest("POST", path, skip_accept_encoding=True)
+        conn.putheader("Content-Type", "application/octet-stream")
+        conn.putheader("Content-Length", str(length))
+        conn.putheader("X-Yima-From", socket.gethostname())
+        conn.endheaders()
+
+        remaining = length
+        while remaining > 0:
+            buf = rfile.read(min(chunk, remaining))
+            if not buf:
+                break
+            conn.send(buf)
+            remaining -= len(buf)
+            sent += len(buf)
+
+        resp = conn.getresponse()
+        raw = resp.read(8192)
+        if resp.status != 200:
+            detail = ""
+            try:
+                detail = json.loads(raw.decode("utf-8", "ignore")).get("error", "")
+            except Exception:
+                detail = raw.decode("utf-8", "ignore")[:120]
+            return False, "对方拒收（HTTP %d）%s" % (resp.status, detail), sent
+        if sent == 0:
+            return False, "文件是空的，没有内容可发", 0
+        return True, "", sent
+    except Exception as e:
+        _log("[发送] %s:%d 失败: %s: %s" % (ip, port, e.__class__.__name__, e))
+        return False, _peer_send_error(e, port), sent
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _probe_live_instance(port=None):
+    """端口上是否真有活着的易码互传在应答。
+
+    用来区分「真被占用」和「TIME_WAIT 残留」：进程被杀掉后，先前建立的
+    连接会在 TIME_WAIT 状态滞留十几到几十秒，此时端口没人监听却仍 bind
+    不上。旧逻辑一律死等 20 秒，超时就弹「端口已被占用」——用户明明已经
+    退出了程序，却被提示端口冲突（本机踩过）。
+    """
+    return _http_probe_peer("127.0.0.1", port or PORT, timeout=0.6) is not None
+
+
 def _http_probe_peer(ip, port=None, timeout=0.8):
     """HTTP 探测该地址是否为易码互传实例；是则返回其版本信息。
 
@@ -772,8 +878,8 @@ def _show_port_conflict_dialog(port):
     """窗口化运行时端口冲突，用系统对话框告知。"""
     script = (
         'display dialog "端口 %d 已被占用，无法启动。\\n\\n'
-        '可能原因：\\n  • 其他软件占用了该端口\\n\\n'
-        '可在设置页修改「服务端口」后重启。" '
+        '可能原因：\\n  • 已有另一个易码互传在运行\\n  • 其它软件占用了该端口\\n\\n'
+        '程序已等待约 45 秒仍未成功。可在设置页修改「服务端口」后重启。" '
         'with title "%s" buttons {"好"} default button "好" with icon stop' % (port, APP_NAME)
     )
     try:
@@ -1442,6 +1548,22 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json(404, {"error": "not found"})
 
+    # ---- OPTIONS（跨域预检兜底）----
+    def do_OPTIONS(self):
+        """放行跨域预检。
+
+        新版控制台已改为走本机服务转发的 /api/peers/send，正常不会再触发
+        预检；这里保留是为了兼容旧版页面（浏览器会因 Content-Type 不是
+        简单请求而先发 OPTIONS，之前没实现该方法是「设备不可达」的原因之一）。
+        """
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     # ---- POST ----
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1449,6 +1571,35 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/upload":
             self._handle_upload(parsed)
+            return
+
+        if p == "/api/peers/send":
+            # 由本机服务端代发到对方设备（绕开浏览器跨域限制，见 forward_file_to_peer 注释）
+            if not self._is_local():
+                self._deny_remote()
+                return
+            q = urllib.parse.parse_qs(parsed.query)
+            ip = (q.get("ip", [""])[0] or "").strip()
+            name = (q.get("name", ["upload.bin"])[0] or "").strip()
+            try:
+                prt = int(q.get("port", [PORT])[0] or PORT)
+            except Exception:
+                prt = PORT
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+            except Exception:
+                length = 0
+            if not ip:
+                self._json(400, {"ok": False, "error": "缺少对方 IP"})
+                return
+            if ip in local_ip_set() or ip in ("127.0.0.1", "localhost"):
+                self._json(400, {"ok": False, "error": "不能发给自己"})
+                return
+            ok, msg, sent = forward_file_to_peer(ip, prt, name, length, self.rfile)
+            if ok:
+                _log("[发送] 已发往 %s:%d 《%s》 %d 字节" % (ip, prt, name, sent))
+            self._json(200, {"ok": ok, "error": msg, "sent": sent,
+                             "ip": ip, "port": prt, "name": name})
             return
 
         if p == "/api/share":
@@ -2001,9 +2152,9 @@ def _bootstrap_server(from_restart, on_stage=None):
 
     if on_stage:
         on_stage("正在启动服务…")
-    # 绑定 HTTP 端口（旧实例刚杀/刚升级完，端口释放需要时间，重试 20 次约 20 秒）
+    # 绑定 HTTP 端口（旧实例刚杀/刚升级完，端口释放需要时间，重试约 45 秒）
     server = None
-    for _attempt in range(20):
+    for _attempt in range(45):
         try:
             ThreadingHTTPServer.allow_reuse_address = False
             server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
@@ -2012,6 +2163,16 @@ def _bootstrap_server(from_restart, on_stage=None):
             if _attempt == 2:
                 # 可能是上一实例/升级残留，再清一次
                 _kill_other_instances()
+            if _attempt >= 3 and not _probe_live_instance(PORT):
+                # 端口上没有任何易码互传应答 → 是上一次退出留下的 TIME_WAIT
+                # 残留（macOS 可长达 30 秒），不会造成双实例，允许复用立即启动
+                try:
+                    ThreadingHTTPServer.allow_reuse_address = True
+                    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+                    _log("[启动] 端口 %d 处于 TIME_WAIT 释放期，已安全接管" % PORT)
+                    break
+                except OSError:
+                    pass
             time.sleep(1.0)
     if server is None:
         return None, None

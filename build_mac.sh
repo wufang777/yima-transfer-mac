@@ -181,7 +181,7 @@ if [ "$INNER_SHA" != "$SRC_SHA" ]; then
   exit 1
 fi
 mv -f "$DMG_TMP" "dist/易码互传.dmg"
-echo "  dmg OK 且自检通过（内含 v$INNER_VER，sha256 与构建产物一致）"
+echo "  dmg OK 且自检通过（内含 v${INNER_VER}，sha256 与构建产物一致）"
 rm -rf "$STAGE"
 
 echo ""

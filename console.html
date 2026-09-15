@@ -439,21 +439,34 @@ $('fileinput').addEventListener('change', async e=>{
   const files = [...e.target.files]; e.target.value='';
   if(!sendTarget || !files.length) return;
   const p = sendTarget;
+  let ok=0, fail=0;
   for(const f of files){
+    toast('正在发送「'+f.name+'」到 '+p.name+'…');
     try{
-      toast('正在发送「'+f.name+'」到 '+p.name+'…');
-      await new Promise((ok,bad)=>{
+      // 注意：不能从网页直接 POST 到对方 IP —— 跨域预检 + CORS 会被浏览器
+      // 拦掉，只能拿到一个笼统的 onerror。改由本机服务端代发，错误原因准确。
+      const r = await new Promise((res,bad)=>{
         const xhr = new XMLHttpRequest();
-        xhr.open('POST','http://'+p.ip+':'+p.port+'/upload?name='+encodeURIComponent(f.name));
-        xhr.upload.onload = ok; xhr.onerror = bad;
-        xhr.ontimeout = bad;
+        xhr.open('POST','/api/peers/send?ip='+encodeURIComponent(p.ip)+
+                        '&port='+encodeURIComponent(p.port)+
+                        '&name='+encodeURIComponent(f.name));
+        xhr.setRequestHeader('Content-Type','application/octet-stream');
+        xhr.timeout = 0;            // 大文件不设上限，超时由服务端控制
+        xhr.onload = ()=>{
+          try{ res(JSON.parse(xhr.responseText)); }
+          catch(err){ bad('本机服务返回异常'); }
+        };
+        xhr.onerror = ()=>bad('本机服务无响应，请确认易码互传仍在运行');
+        xhr.ontimeout = ()=>bad('发送超时');
         xhr.send(f);
       });
-      toast('已发送「'+f.name+'」到 '+p.name);
+      if(r && r.ok){ ok++; toast('已发送「'+f.name+'」到 '+p.name); }
+      else { fail++; toast('发送「'+f.name+'」失败：'+((r&&r.error)||'未知原因')); }
     }catch(err){
-      toast('发送「'+f.name+'」失败：设备不可达');
+      fail++; toast('发送「'+f.name+'」失败：'+err);
     }
   }
+  if(fail && !ok) toast('全部 '+fail+' 个文件发送失败，可点「重新扫描局域网」后再试');
 });
 
 $('refresh').onclick = ()=>{ loadFiles(); loadPeers(); };
