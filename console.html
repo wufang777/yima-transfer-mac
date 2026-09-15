@@ -116,7 +116,12 @@
     <div class="card" data-page-node-id="TZuz8unYwRsKa1AaYRFDL1">
       <h2 data-page-node-id="v3x1V5xyBD6eg2Ewl7Ewvo"><span class="dot" data-page-node-id="nmxu2v91xtCj7sG2r3lKns"></span>局域网设备</h2>
       <div id="peers" class="filelist" data-page-node-id="V99merdkJN7DEdZAogutSW"><div class="empty" data-page-node-id="f6PxHQCGWgVIjWPDbxQDje">正在扫描局域网…</div></div>
-      <div class="meta" data-page-node-id="jtT9CG0GAwGM8EIDg5MG7z">两台电脑都运行易码互传即可互相发现；选择对方设备发送文件。</div>
+      <div class="toolbar" style="margin-top:10px">
+        <button class="btn-blue" id="scanlan">重新扫描局域网</button>
+        <input id="peerip" placeholder="对方 IP，如 192.168.10.12" style="flex:1;min-width:180px">
+        <button class="btn-orange" id="addpeer">手动添加</button>
+      </div>
+      <div class="meta" data-page-node-id="jtT9CG0GAwGM8EIDg5MG7z">两台电脑都运行易码互传即可互相发现；选择对方设备发送文件。若广播被路由器拦截，用「手动添加」填对方 IP 也能互传。</div>
     </div>
 
     <!-- 发送文件到手机 -->
@@ -422,7 +427,7 @@ async function loadPeers(){
       row.innerHTML =
         '<span class="dot"></span>'+
         '<span class="pname">'+esc(p.name)+'</span>'+
-        '<span class="pip">'+esc(p.ip)+':'+p.port+'</span>'+
+        '<span class="pip">'+esc(p.ip)+':'+p.port+(p.via==='http'?' · 扫描':'')+'</span>'+
         '<button class="btn-orange">发文件</button>';
       row.querySelector('button').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
       box.appendChild(row);
@@ -452,6 +457,24 @@ $('fileinput').addEventListener('change', async e=>{
 });
 
 $('refresh').onclick = ()=>{ loadFiles(); loadPeers(); };
+
+$('scanlan').onclick = async ()=>{
+  $('peers').innerHTML = '<div class="empty">正在扫描局域网…（约 3 秒）</div>';
+  try{ await fetch('/api/scan'); }catch(e){}
+  loadPeers();
+};
+
+$('addpeer').onclick = async ()=>{
+  const ip = ($('peerip').value||'').trim();
+  if(!ip){ toast('请先填写对方 IP'); return; }
+  try{
+    const r = await (await fetch('/api/peers/add',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ip:ip})})).json();
+    if(r.ok){ toast('已添加设备'); $('peerip').value=''; loadPeers(); }
+    else toast(r.error || '添加失败');
+  }catch(e){ toast('添加失败：'+e); }
+};
 $('openfolder').onclick = async ()=>{
   await fetch('/api/local/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
 };

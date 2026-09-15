@@ -28,6 +28,7 @@ import shutil
 import urllib.parse
 import urllib.request
 import uuid
+import concurrent.futures
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -39,8 +40,8 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.5.1"
-APP_BUILD = "20260914"
+APP_VERSION_NUM = "1.6.0"
+APP_BUILD = "20260915"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -521,14 +522,128 @@ def _discovery_listen():
 def start_discovery():
     threading.Thread(target=_discovery_beacon, daemon=True).start()
     threading.Thread(target=_discovery_listen, daemon=True).start()
+    threading.Thread(target=_discovery_scanner, daemon=True).start()
+
+
+# ---------- HTTP 扫描发现（不依赖 UDP 广播，穿透广播被拦的网络）----------
+SCANNED = {}                 # "ip:port" -> peer dict（HTTP 探测到的设备）
+SCAN_LOCK = threading.Lock()
+SCAN_TTL = 300               # 扫描结果保留 5 分钟（每 2 分钟自动重扫刷新）
+
+
+def _lan_prefixes():
+    """本机各网段的 /24 前缀，如 ['192.168.1.', '192.168.10.']。"""
+    pres = []
+    for ip in _local_ipv4s():
+        p = ip.rsplit(".", 1)[0] + "."
+        if p not in pres:
+            pres.append(p)
+    return pres
+
+
+def _http_probe_peer(ip, port=None, timeout=0.8):
+    """HTTP 探测该地址是否为易码互传实例；是则返回其版本信息。
+
+    显式绕过系统代理 —— 否则局域网 IP 会被代理劫持（本机踩过这个坑）。
+    """
+    port = port or PORT
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open("http://%s:%d/api/version" % (ip, port), timeout=timeout) as r:
+            info = json.loads(r.read(8192).decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    if not isinstance(info, dict) or info.get("app") != APP_NAME:
+        return None
+    return info
+
+
+def scan_lan(port=None, timeout=0.8, workers=128):
+    """并发扫描本机各网段，返回发现的易码互传设备列表。"""
+    port = port or PORT
+    mine = set(_local_ipv4s())
+    targets = []
+    for pre in _lan_prefixes():
+        for i in range(1, 255):
+            ip = pre + str(i)
+            if ip not in mine:
+                targets.append(ip)
+    if not targets:
+        return []
+    found = []
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            for ip, info in ex.map(
+                    lambda ip: (ip, _http_probe_peer(ip, port, timeout)), targets):
+                if info:
+                    found.append((ip, info))
+    except Exception as e:
+        _log("[扫描] 异常: %s" % e)
+    now = time.time()
+    with SCAN_LOCK:
+        for ip, info in found:
+            SCANNED["%s:%d" % (ip, port)] = {
+                "id": "http:%s:%d" % (ip, port),
+                "name": str(info.get("name") or info.get("host") or ip),
+                "ip": ip,
+                "port": port,
+                "platform": info.get("platform", ""),
+                "last_seen": now,
+            }
+        for k in [k for k, v in SCANNED.items()
+                  if now - v.get("last_seen", 0) > SCAN_TTL]:
+            SCANNED.pop(k, None)
+    if found:
+        _log("[扫描] %s 网段发现 %d 台设备: %s" % (
+            "、".join(_lan_prefixes()), len(found),
+            "、".join("%s(%s)" % (i.get("name") or i.get("app"), ip)
+                      for ip, i in found)))
+    return [v for v in SCANNED.values()]
+
+
+def note_scanned_peer(ip, port=None, name=None, platform=None):
+    """把一台设备登记进扫描结果（手动添加设备时用）。"""
+    port = port or PORT
+    with SCAN_LOCK:
+        SCANNED["%s:%d" % (ip, port)] = {
+            "id": "http:%s:%d" % (ip, port),
+            "name": name or ip, "ip": ip, "port": port,
+            "platform": platform or "", "last_seen": time.time(),
+        }
+
+
+def _discovery_scanner():
+    """开机后先扫一遍，之后每 2 分钟刷新（UDP 广播被拦时的兜底通道）。"""
+    time.sleep(3)
+    while True:
+        try:
+            scan_lan()
+        except Exception as e:
+            _log("[扫描] 后台异常: %s" % e)
+        time.sleep(120)
 
 
 def list_peers():
+    """UDP 广播发现的设备 + HTTP 扫描发现的设备，按 ip:port 去重合并。"""
+    now = time.time()
+    out, seen = [], set()
     with PEER_LOCK:
-        return [
-            {"id": v["id"], "name": v["name"], "ip": v["ip"], "port": v["port"]}
-            for v in sorted(PEERS.values(), key=lambda x: (x["name"], x["ip"]))
-        ]
+        for v in sorted(PEERS.values(), key=lambda x: (x["name"], x["ip"])):
+            key = "%s:%d" % (v["ip"], v["port"])
+            seen.add(key)
+            out.append({"id": v["id"], "name": v["name"], "ip": v["ip"],
+                        "port": v["port"], "via": "broadcast"})
+    with SCAN_LOCK:
+        for v in sorted(SCANNED.values(), key=lambda x: (x["name"], x["ip"])):
+            key = "%s:%d" % (v["ip"], v["port"])
+            if key in seen:
+                continue
+            if now - v.get("last_seen", 0) > SCAN_TTL:
+                continue
+            out.append({"id": v["id"], "name": v["name"], "ip": v["ip"],
+                        "port": v["port"], "via": "http",
+                        "platform": v.get("platform", "")})
+    return out
 
 
 # ---------- 开机自启（macOS LaunchAgents）----------
@@ -1080,6 +1195,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            return {}
+
     def _send_html(self, path: Path):
         if path.exists():
             html = path.read_text(encoding="utf-8").encode("utf-8")
@@ -1174,6 +1297,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, list_peers())
             return
 
+        if path == "/api/scan":
+            # 主动 HTTP 扫描本机各网段（不依赖 UDP 广播）
+            try:
+                scan_lan()
+            except Exception as e:
+                _log("[扫描] 手动触发异常: %s" % e)
+            self._json(200, list_peers())
+            return
+
         if path.startswith("/share/"):
             sid = path[len("/share/"):]
             with SHARE_LOCK:
@@ -1198,6 +1330,9 @@ class Handler(BaseHTTPRequestHandler):
                 "channel": APP_CHANNEL,
                 "version_line": APP_VERSION_LINE,
                 "company": APP_COMPANY,
+                "name": socket.gethostname(),
+                "platform": "mac",
+                "port": PORT,
             })
             return
 
@@ -1314,6 +1449,32 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/restart":
             self._json(200, {"ok": True})
             threading.Thread(target=_restart_and_exit, daemon=True).start()
+            return
+
+        if p == "/api/peers/add":
+            # 手动添加设备：直接用 HTTP 探测该地址，成功即登记（不依赖 UDP）
+            try:
+                body = self._read_json() or {}
+            except Exception:
+                body = {}
+            ip = str(body.get("ip") or "").strip()
+            try:
+                prt = int(body.get("port") or PORT)
+            except Exception:
+                prt = PORT
+            if not ip:
+                self._json(400, {"ok": False, "error": "请填写对方 IP"})
+                return
+            info = _http_probe_peer(ip, prt, timeout=2.0)
+            if not info:
+                self._json(200, {"ok": False,
+                                 "error": "连不上 %s:%d —— 对方程序未运行，或被防火墙拦截" % (ip, prt)})
+                return
+            note_scanned_peer(ip, prt, str(info.get("name") or ip),
+                              info.get("platform"))
+            _log("[设备] 手动添加成功: %s (%s:%d)" % (
+                info.get("name") or ip, ip, prt))
+            self._json(200, {"ok": True, "peers": list_peers()})
             return
 
         # ---- 仅本机可用的控制接口 ----

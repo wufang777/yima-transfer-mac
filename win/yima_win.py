@@ -30,7 +30,9 @@ import threading
 import time
 import mimetypes
 import urllib.parse
+import urllib.request
 import uuid
+import concurrent.futures
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -542,14 +544,124 @@ def _discovery_listen():
 def start_discovery():
     threading.Thread(target=_discovery_beacon, daemon=True).start()
     threading.Thread(target=_discovery_listen, daemon=True).start()
+    threading.Thread(target=_discovery_scanner, daemon=True).start()
+
+
+# ---------- HTTP 扫描发现（不依赖 UDP 广播，穿透广播被拦的网络）----------
+SCANNED = {}                 # "ip:port" -> peer dict（HTTP 探测到的设备）
+SCAN_LOCK = threading.Lock()
+SCAN_TTL = 300               # 扫描结果保留 5 分钟（每 2 分钟自动重扫刷新）
+
+
+def _lan_prefixes():
+    """本机各网段的 /24 前缀，如 ['192.168.1.', '192.168.10.']。"""
+    pres = []
+    for ip in local_ip_set():
+        if _bad_lan_ip(ip) or ":" in ip:
+            continue
+        p = ip.rsplit(".", 1)[0] + "."
+        if p not in pres:
+            pres.append(p)
+    return pres
+
+
+def _http_probe_peer(ip, port=None, timeout=0.8):
+    """HTTP 探测该地址是否为易码互传实例；是则返回其版本信息。"""
+    port = port or PORT
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open("http://%s:%d/api/version" % (ip, port), timeout=timeout) as r:
+            info = json.loads(r.read(8192).decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    if not isinstance(info, dict) or info.get("app") != APP_NAME:
+        return None
+    return info
+
+
+def scan_lan(port=None, timeout=0.8, workers=128):
+    """并发扫描本机各网段，返回发现的易码互传设备列表。"""
+    port = port or PORT
+    mine = {ip for ip in local_ip_set() if ":" not in ip}
+    targets = []
+    for pre in _lan_prefixes():
+        for i in range(1, 255):
+            ip = pre + str(i)
+            if ip not in mine:
+                targets.append(ip)
+    if not targets:
+        return []
+    found = []
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            for ip, info in ex.map(
+                    lambda ip: (ip, _http_probe_peer(ip, port, timeout)), targets):
+                if info:
+                    found.append((ip, info))
+    except Exception as e:
+        _log("[扫描] 异常: %s" % e)
+    now = time.time()
+    with SCAN_LOCK:
+        for ip, info in found:
+            SCANNED["%s:%d" % (ip, port)] = {
+                "id": "http:%s:%d" % (ip, port),
+                "name": str(info.get("name") or ip),
+                "ip": ip,
+                "port": port,
+                "platform": info.get("platform", ""),
+                "last_seen": now,
+            }
+        for k in [k for k, v in SCANNED.items()
+                  if now - v.get("last_seen", 0) > SCAN_TTL]:
+            SCANNED.pop(k, None)
+    if found:
+        _log("[扫描] %s 网段发现 %d 台设备: %s" % (
+            "、".join(_lan_prefixes()), len(found),
+            "、".join("%s(%s)" % (i.get("name") or i.get("app"), ip)
+                      for ip, i in found)))
+    return [v for v in SCANNED.values()]
+
+
+def note_scanned_peer(ip, port=None, name=None, platform=None):
+    """把一台设备登记进扫描结果（手动添加设备时用）。"""
+    port = port or PORT
+    with SCAN_LOCK:
+        SCANNED["%s:%d" % (ip, port)] = {
+            "id": "http:%s:%d" % (ip, port),
+            "name": name or ip, "ip": ip, "port": port,
+            "platform": platform or "", "last_seen": time.time(),
+        }
+
+
+def _discovery_scanner():
+    """开机后先扫一遍，之后每 2 分钟刷新（UDP 广播被拦时的兜底通道）。"""
+    time.sleep(3)
+    while True:
+        try:
+            scan_lan()
+        except Exception as e:
+            _log("[扫描] 后台异常: %s" % e)
+        time.sleep(120)
 
 
 def list_peers():
+    """UDP 广播发现的设备 + HTTP 扫描发现的设备，按 ip:port 去重合并。"""
+    now = time.time()
+    out, seen = [], set()
     with PEER_LOCK:
-        return [
-            {"id": v["id"], "name": v["name"], "ip": v["ip"], "port": v["port"]}
-            for v in sorted(PEERS.values(), key=lambda x: (x["name"], x["ip"]))
-        ]
+        for v in sorted(PEERS.values(), key=lambda x: (x["name"], x["ip"])):
+            seen.add("%s:%d" % (v["ip"], v["port"]))
+            out.append({"id": v["id"], "name": v["name"], "ip": v["ip"],
+                        "port": v["port"], "via": "broadcast"})
+    with SCAN_LOCK:
+        for v in sorted(SCANNED.values(), key=lambda x: (x["name"], x["ip"])):
+            key = "%s:%d" % (v["ip"], v["port"])
+            if key in seen or now - v.get("last_seen", 0) > SCAN_TTL:
+                continue
+            out.append({"id": v["id"], "name": v["name"], "ip": v["ip"],
+                        "port": v["port"], "via": "http",
+                        "platform": v.get("platform", "")})
+    return out
 
 
 # ---------- 开机自启（启动文件夹快捷方式，无需管理员）----------
@@ -788,6 +900,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, list_peers())
             return
 
+        if path == "/api/scan":
+            # 主动 HTTP 扫描本机各网段（不依赖 UDP 广播）
+            try:
+                scan_lan()
+            except Exception as e:
+                _log("[扫描] 手动触发异常: %s" % e)
+            self._json(200, list_peers())
+            return
+
         if path.startswith("/share/"):
             sid = path[len("/share/"):]
             with SHARE_LOCK:
@@ -815,6 +936,8 @@ class Handler(BaseHTTPRequestHandler):
                 "version_line": APP_VERSION_LINE,
                 "company": APP_COMPANY,
                 "platform": "windows",
+                "name": socket.gethostname(),
+                "port": PORT,
             })
             return
 
@@ -927,6 +1050,29 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/restart":
             self._json(200, {"ok": True})
             threading.Thread(target=_restart_and_exit, daemon=True).start()
+            return
+
+        if p == "/api/peers/add":
+            # 手动添加设备：直接用 HTTP 探测该地址，成功即登记（不依赖 UDP）
+            body = self._read_json_body() or {}
+            ip = str(body.get("ip") or "").strip()
+            try:
+                prt = int(body.get("port") or PORT)
+            except Exception:
+                prt = PORT
+            if not ip:
+                self._json(400, {"ok": False, "error": "请填写对方 IP"})
+                return
+            info = _http_probe_peer(ip, prt, timeout=2.0)
+            if not info:
+                self._json(200, {"ok": False,
+                                 "error": "连不上 %s:%d —— 对方程序未运行，或被防火墙拦截" % (ip, prt)})
+                return
+            note_scanned_peer(ip, prt, str(info.get("name") or ip),
+                              info.get("platform"))
+            _log("[设备] 手动添加成功: %s (%s:%d)" % (
+                info.get("name") or ip, ip, prt))
+            self._json(200, {"ok": True, "peers": list_peers()})
             return
 
         if p == "/api/local/open-folder":
@@ -1167,7 +1313,7 @@ def _tray_image():
         return img
 
 
-def run_tray(on_console, on_phone, on_qr, on_folder, on_restart, on_quit):
+def run_tray(on_console, on_phone, on_qr, on_folder, on_scan, on_restart, on_quit):
     try:
         import pystray
     except ImportError:
@@ -1179,6 +1325,7 @@ def run_tray(on_console, on_phone, on_qr, on_folder, on_restart, on_quit):
         pystray.MenuItem("打开手机连接页", lambda *_: on_phone()),
         pystray.MenuItem("显示二维码", lambda *_: on_qr()),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("扫描局域网设备", lambda *_: on_scan()),
         pystray.MenuItem("打开接收目录", lambda *_: on_folder()),
         pystray.MenuItem("重启服务", lambda *_: on_restart()),
         pystray.Menu.SEPARATOR,
@@ -1309,6 +1456,15 @@ def main():
     def _folder():
         _open_path(RECEIVE_DIR)
 
+    def _scan():
+        def _do():
+            try:
+                found = scan_lan()
+                _notify(APP_NAME, "扫描完成，共发现 %d 台设备" % len(found))
+            except Exception as e:
+                _log("[扫描] 托盘触发异常: %s" % e)
+        threading.Thread(target=_do, daemon=True).start()
+
     def _restart():
         threading.Thread(target=_restart_and_exit, daemon=True).start()
 
@@ -1323,7 +1479,7 @@ def main():
         os._exit(0)
 
     if not args.headless:
-        run_tray(_console, _phone, _qr, _folder, _restart, _quit)
+        run_tray(_console, _phone, _qr, _folder, _scan, _restart, _quit)
         _notify(APP_NAME, "服务已启动：%s" % CONNECT_URL)
 
     if not args.no_open and CONFIG.get("open_console_on_start", True):
