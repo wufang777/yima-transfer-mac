@@ -42,7 +42,7 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.7.0"
+APP_VERSION_NUM = "1.8.0"
 APP_BUILD = "20260922"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
@@ -976,6 +976,15 @@ def _print_text_qr(url):
         print("  " + "".join("#" if cell else " " for cell in row))
 
 
+def connect_code():
+    """电脑连线码内容：yima-connect://ip:port?name=主机名。
+
+    对方电脑控制台「扫码连接」对准本机屏幕上的二维码即可添加本机。
+    """
+    return "yima-connect://%s:%d?name=%s" % (
+        get_lan_ip(), PORT, urllib.parse.quote(socket.gethostname()))
+
+
 # ---------- 版本与在线升级 ----------
 UPDATE_LOCK = threading.Lock()
 UPDATE_STATE = {
@@ -1608,6 +1617,30 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
+            return
+
+        if path == "/connect-qr.png":
+            # 本机「电脑连线码」：对方控制台扫码连接用
+            if not HAS_QR:
+                self._json(404, {"error": "segno not available"})
+                return
+            import io
+            buf = io.BytesIO()
+            qr = segno.make(connect_code(), error="l")
+            qr.save(buf, kind="png", scale=6, border=2)
+            data = buf.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        if path == "/api/connect-info":
+            self._json(200, {"ip": get_lan_ip(), "port": PORT,
+                             "name": socket.gethostname(), "code": connect_code()})
             return
 
         if path.startswith("/download/"):
