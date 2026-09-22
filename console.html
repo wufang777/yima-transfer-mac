@@ -124,6 +124,20 @@
       <div class="meta" data-page-node-id="jtT9CG0GAwGM8EIDg5MG7z">两台电脑都运行易码互传即可互相发现；选择对方设备发送文件。若广播被路由器拦截，用「手动添加」填对方 IP 也能互传。</div>
     </div>
 
+    <!-- 互传文字 -->
+    <div class="card full" id="textcard">
+      <h2><span class="dot" style="background:var(--blue,#3b82f6)"></span>互传文字</h2>
+      <div class="toolbar">
+        <select id="textpeer" style="flex:0 0 240px;min-width:200px;padding:8px;border-radius:8px;border:1px solid var(--line,#ddd);font:inherit"></select>
+        <button class="btn-blue" id="textsend">发送文字</button>
+      </div>
+      <textarea id="textinput" rows="3"
+        placeholder="输入要发送的文字，对方收到后自动复制到剪贴板（Ctrl/⌘ + 回车 发送）"
+        style="width:100%;box-sizing:border-box;border:1px solid var(--line,#ddd);border-radius:8px;padding:10px;font:inherit;margin-top:10px;resize:vertical"></textarea>
+      <div id="textmsgs" class="filelist" style="max-height:260px;overflow-y:auto"></div>
+      <div class="meta">文字会直接送到对方电脑（自动复制进对方剪贴板并弹通知）；点击任意一条消息可复制内容。记录保留最近 100 条。</div>
+    </div>
+
     <!-- 发送文件到手机 -->
     <div class="card full" id="sendcard">
       <h2><span class="dot" style="background:var(--green)"></span>发送文件到手机</h2>
@@ -419,18 +433,29 @@ $('unshareall').onclick = async ()=>{
 async function loadPeers(){
   try{
     const peers = await (await fetch('/api/peers')).json();
+    textPeerList = peers;
     const box = $('peers');
-    if(!peers.length){ box.innerHTML = '<div class="empty">未发现其它设备 —— 对方电脑也运行易码互传后出现在这里</div>'; return; }
-    box.innerHTML = '';
-    for(const p of peers){
-      const row = document.createElement('div'); row.className='peer';
-      row.innerHTML =
-        '<span class="dot"></span>'+
-        '<span class="pname">'+esc(p.name)+'</span>'+
-        '<span class="pip">'+esc(p.ip)+':'+p.port+(p.via==='http'?' · 扫描':'')+'</span>'+
-        '<button class="btn-orange">发文件</button>';
-      row.querySelector('button').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
-      box.appendChild(row);
+    if(!peers.length){ box.innerHTML = '<div class="empty">未发现其它设备 —— 对方电脑也运行易码互传后出现在这里</div>'; }
+    else{
+      box.innerHTML = '';
+      for(const p of peers){
+        const row = document.createElement('div'); row.className='peer';
+        row.innerHTML =
+          '<span class="dot"></span>'+
+          '<span class="pname">'+esc(p.name)+'</span>'+
+          '<span class="pip">'+esc(p.ip)+':'+p.port+(p.via==='http'?' · 扫描':'')+'</span>'+
+          '<button class="btn-orange">发文件</button>';
+        row.querySelector('button').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
+        box.appendChild(row);
+      }
+    }
+    // 同步「互传文字」的设备下拉框
+    const sel = $('textpeer');
+    if(sel){
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— 选择要发送的设备 —</option>' +
+        peers.map(p=>'<option value="'+esc(p.ip)+'|'+p.port+'">'+esc(p.name)+'（'+esc(p.ip)+':'+p.port+'）</option>').join('');
+      if([...sel.options].some(o=>o.value===cur)) sel.value = cur;
     }
   }catch(e){}
 }
@@ -471,6 +496,67 @@ $('fileinput').addEventListener('change', async e=>{
 
 $('refresh').onclick = ()=>{ loadFiles(); loadPeers(); };
 
+// ---- 互传文字 ----
+function fmtTime(ts){
+  const d = new Date(ts*1000), p = n => (n<10?'0':'')+n;
+  return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+let lastTextTs = 0;
+
+async function loadText(){
+  try{
+    const msgs = await (await fetch('/api/text/messages')).json();
+    const box = $('textmsgs');
+    if(!msgs.length){ box.innerHTML = '<div class="empty">还没有消息 —— 选好设备、输入文字即可互发</div>'; lastTextTs = 0; return; }
+    box.innerHTML = '';
+    for(const m of msgs){
+      const row = document.createElement('div'); row.className='peer';
+      row.style.cursor = 'pointer'; row.title = '点击复制内容';
+      row.innerHTML =
+        '<span class="dot" style="background:'+(m.dir==='recv'?'var(--green)':'var(--orange)')+'"></span>'+
+        '<span class="pname" style="white-space:nowrap">'+(m.dir==='recv'?'来自':'发至')+' '+esc(m.device)+'</span>'+
+        '<span class="pip" style="flex:1;white-space:pre-wrap;word-break:break-all;text-align:left">'+
+          esc(m.text.length>200 ? m.text.slice(0,200)+'…' : m.text)+'</span>'+
+        '<span class="pip" style="white-space:nowrap">'+fmtTime(m.ts)+'</span>';
+      row.onclick = async ()=>{
+        try{ await navigator.clipboard.writeText(m.text); toast('已复制消息内容'); }
+        catch(e){ toast('复制失败，请手动选择复制'); }
+      };
+      box.appendChild(row);
+    }
+    box.scrollTop = box.scrollHeight;
+    const newest = msgs[msgs.length-1].ts;
+    if(lastTextTs && newest > lastTextTs && msgs.some(m=>m.dir==='recv' && m.ts>lastTextTs)){
+      toast('收到新文字，已自动复制到剪贴板');
+    }
+    lastTextTs = newest;
+  }catch(e){}
+}
+
+$('textsend').onclick = async ()=>{
+  const sel = $('textpeer');
+  if(!sel.value){ toast('请先在上方选择要发送的设备'); return; }
+  const [ip, port] = sel.value.split('|');
+  const p = textPeerList.find(x=>x.ip===ip && String(x.port)===String(port));
+  const name = p ? p.name : ip;
+  const text = ($('textinput').value||'').trim();
+  if(!text){ toast('请输入要发送的文字'); return; }
+  toast('正在发送文字到 '+name+'…');
+  try{
+    const r = await (await fetch('/api/text/send?ip='+encodeURIComponent(ip)+
+      '&port='+encodeURIComponent(port)+'&name='+encodeURIComponent(name),
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({text})})).json();
+    if(r.ok){ toast('已发送到 '+name); $('textinput').value=''; }
+    else toast('发送失败：'+((r&&r.error)||'未知原因'));
+  }catch(e){ toast('发送失败：'+e); }
+  loadText();
+};
+
+$('textinput').addEventListener('keydown', e=>{
+  if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('textsend').click(); }
+});
+
 $('scanlan').onclick = async ()=>{
   $('peers').innerHTML = '<div class="empty">正在扫描局域网…（约 3 秒）</div>';
   try{ await fetch('/api/scan'); }catch(e){}
@@ -502,12 +588,13 @@ $('copy').onclick = async ()=>{
   }
 };
 
-loadStatus(); loadFiles(); loadPeers(); loadVersion(); pollUpdate(); loadShared();
+loadStatus(); loadFiles(); loadPeers(); loadVersion(); pollUpdate(); loadShared(); loadText();
 setInterval(loadPeers, 5000);
 setInterval(loadFiles, 8000);
 setInterval(loadStatus, 8000);
 setInterval(pollUpdate, 6000);
 setInterval(loadShared, 5000);
+setInterval(loadText, 3000);
 </script>
 </body>
 </html>

@@ -61,8 +61,8 @@ if getattr(sys, "frozen", False):
 # ---- 品牌与版本（与 Mac 版保持同一口径）----
 APP_NAME = "易码互传"
 APP_COMPANY = "易码通科技"
-APP_VERSION_NUM = "1.6.2"
-APP_BUILD = "20260915"
+APP_VERSION_NUM = "1.7.0"
+APP_BUILD = "20260922"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -664,6 +664,58 @@ def forward_file_to_peer(ip, port, filename, length, rfile, chunk=262144):
                 pass
 
 
+def forward_text_to_peer(ip, port, text, from_name=None):
+    """把一段文字 POST 到对方 /api/text/receive。返回 (ok, msg)。"""
+    port = int(port or PORT)
+    try:
+        body = json.dumps(
+            {"text": text, "from": from_name or socket.gethostname()},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        conn = http.client.HTTPConnection(ip, port, timeout=8.0)
+        try:
+            conn.request(
+                "POST", "/api/text/receive", body=body,
+                headers={
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Content-Length": str(len(body)),
+                    "X-Yima-From": socket.gethostname(),
+                },
+            )
+            resp = conn.getresponse()
+            resp.read(8192)
+            if resp.status != 200:
+                return False, "对方拒收（HTTP %d）" % resp.status
+        finally:
+            conn.close()
+        return True, ""
+    except Exception as e:
+        _log("[文字] 发往 %s:%d 失败: %s: %s" % (ip, port, e.__class__.__name__, e))
+        return False, _peer_send_error(e, port)
+
+
+# ---- 文字互传：收发记录（内存，进程内保留最近 100 条） ----
+TEXT_MAX_LEN = 10000          # 单条文字上限（字符）
+_TEXT_HISTORY = []
+_TEXT_LOCK = threading.Lock()
+
+
+def _text_record(direction, device, text):
+    with _TEXT_LOCK:
+        _TEXT_HISTORY.append({
+            "dir": direction,          # "sent" / "recv"
+            "device": str(device)[:64],
+            "text": text,
+            "ts": int(time.time()),
+        })
+        del _TEXT_HISTORY[:-100]
+
+
+def text_history(limit=100):
+    with _TEXT_LOCK:
+        return list(_TEXT_HISTORY[-limit:])
+
+
 def _probe_live_instance(port=None):
     """端口上是否真有活着的易码互传在应答。
 
@@ -1054,6 +1106,10 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
+        if path == "/api/text/messages":
+            self._json(200, text_history(100))
+            return
+
         if path == "/api/local/update":
             self._json(200, {"phase": "idle", "message": "", "percent": 0,
                              "manifest": None, "error": ""})
@@ -1187,6 +1243,63 @@ class Handler(BaseHTTPRequestHandler):
                 _log("[发送] 已发往 %s:%d 《%s》 %d 字节" % (ip, prt, name, sent))
             self._json(200, {"ok": ok, "error": msg, "sent": sent,
                              "ip": ip, "port": prt, "name": name})
+            return
+
+        if p == "/api/text/send":
+            # 由本机服务端把文字转发到对方 /api/text/receive
+            if not self._is_local():
+                self._deny_remote()
+                return
+            body = self._read_json_body() or {}
+            text = str(body.get("text") or "").strip()
+            if not text:
+                self._json(400, {"ok": False, "error": "没有内容可发送"})
+                return
+            if len(text) > TEXT_MAX_LEN:
+                self._json(400, {"ok": False,
+                                 "error": "文字过长（上限 %d 字，当前 %d 字）" % (TEXT_MAX_LEN, len(text))})
+                return
+            q = urllib.parse.parse_qs(parsed.query)
+            ip = (q.get("ip", [""])[0] or "").strip()
+            try:
+                prt = int(q.get("port", [PORT])[0] or PORT)
+            except Exception:
+                prt = PORT
+            if not ip:
+                self._json(400, {"ok": False, "error": "缺少对方 IP"})
+                return
+            if ip in local_ip_set() or ip in ("127.0.0.1", "localhost"):
+                self._json(400, {"ok": False, "error": "不能发给自己"})
+                return
+            ok, msg = forward_text_to_peer(ip, prt, text)
+            if ok:
+                _text_record("sent", q.get("name", [ip])[0] or ip, text)
+                _log("[文字] 已发往 %s:%d %d 字" % (ip, prt, len(text)))
+            self._json(200, {"ok": ok, "error": msg, "ip": ip, "port": prt})
+            return
+
+        if p == "/api/text/receive":
+            # 局域网对方设备发来的文字（与 /upload 同信任级别）
+            body = self._read_json_body() or {}
+            text = str(body.get("text") or "")
+            from_name = str(body.get("from")
+                            or self.headers.get("X-Yima-From")
+                            or self.client_address[0])[:64]
+            if not text.strip():
+                self._json(400, {"ok": False, "error": "内容为空"})
+                return
+            if len(text) > TEXT_MAX_LEN:
+                self._json(400, {"ok": False, "error": "文字过长，已拒收"})
+                return
+            _text_record("recv", from_name, text)
+            _log("[文字] 收到来自 %s 的 %d 字" % (from_name, len(text)))
+            # 自动复制到剪贴板，收到即可直接粘贴
+            if CONFIG.get("text_autocopy", True):
+                _copy_to_clipboard(text)
+            _notify(APP_NAME, "收到来自 %s 的文字：%.60s%s"
+                    % (from_name, text.replace("\n", " "),
+                       "…" if len(text) > 60 else ""))
+            self._json(200, {"ok": True})
             return
 
         if p == "/api/share":
