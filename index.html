@@ -158,6 +158,12 @@
       </div>
 
       <div class="section">
+        <div class="row"><strong>电脑推送的文字</strong></div>
+        <div class="sub" style="margin:6px 0 8px;">电脑控制台点「推送到手机」发来的文字，点「复制」即可粘贴到微信、备忘录等任意位置。</div>
+        <ul class="files" id="pushlist"><li class="empty">暂无推送</li></ul>
+      </div>
+
+      <div class="section">
         <div class="row">
           <strong>电脑上的文件</strong>
           <button class="btn ghost sm" id="refresh">刷新</button>
@@ -212,6 +218,44 @@ document.getElementById('sendtxt').onclick = sendText;
 txtBox.addEventListener('keydown', e => {
   if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); sendText(); }
 });
+
+// ---- 电脑推送的文字 ----
+const pushlist = document.getElementById('pushlist');
+let lastPushId = 0;
+function fmtTime(ts){
+  const d = new Date(ts * 1000);
+  const p = n => (n<10?'0':'')+n;
+  return p(d.getHours())+':'+p(d.getMinutes());
+}
+async function loadPush(){
+  try{
+    const r = await (await fetch('/api/text/phone/messages?after=' + lastPushId)).json();
+    if(!r.ok || !r.messages || !r.messages.length) return;
+    for(const m of r.messages){
+      lastPushId = Math.max(lastPushId, m.id);
+      const li = document.createElement('li');
+      li.className = 'file';
+      li.style.flexWrap = 'wrap';
+      const span = document.createElement('span');
+      span.className = 'fname';
+      span.style.whiteSpace = 'pre-wrap';
+      span.textContent = m.text;
+      const tm = document.createElement('span');
+      tm.className = 'fsize';
+      tm.textContent = fmtTime(m.ts);
+      const cp = document.createElement('button');
+      cp.className = 'btn sm copy';
+      cp.textContent = '复制';
+      cp.onclick = () => copyText(m.text, '已复制');
+      li.appendChild(span); li.appendChild(tm); li.appendChild(cp);
+      pushlist.prepend(li);           // 最新的在最上面
+    }
+    const empty = pushlist.querySelector('.empty');
+    if(empty) empty.remove();
+  }catch(e){}
+}
+loadPush();
+setInterval(loadPush, 3000);
 
 // 轻提示
 let toastTimer = null;

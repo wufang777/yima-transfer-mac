@@ -139,6 +139,7 @@
       <div class="toolbar">
         <select id="textpeer" style="flex:0 0 240px;min-width:200px;padding:8px;border-radius:8px;border:1px solid var(--line,#ddd);font:inherit"></select>
         <button class="btn-blue" id="textsend">发送文字</button>
+        <button class="btn-ghost" id="textpush">推送到手机</button>
       </div>
       <textarea id="textinput" rows="3"
         placeholder="输入要发送的文字，对方收到后自动复制到剪贴板（Ctrl/⌘ + 回车 发送）"
@@ -591,6 +592,18 @@ $('textsend').onclick = async ()=>{
 $('textinput').addEventListener('keydown', e=>{
   if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('textsend').click(); }
 });
+
+$('textpush').onclick = async ()=>{
+  const text = ($('textinput').value||'').trim();
+  if(!text){ toast('请先输入要推送的文字'); return; }
+  try{
+    const r = await (await fetch('/api/text/phone',
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({text})})).json();
+    if(r.ok){ toast('已推送到手机 —— 手机页面会显示并可直接复制'); }
+    else toast('推送失败：'+((r&&r.error)||'未知原因'));
+  }catch(e){ toast('推送失败：'+e); }
+};
 
 // ---- 扫码连接 ----
 // 相机要求安全上下文：本机用 http://localhost:8000/console 打开即可；

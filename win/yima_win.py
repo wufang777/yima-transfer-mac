@@ -61,7 +61,7 @@ if getattr(sys, "frozen", False):
 # ---- 品牌与版本（与 Mac 版保持同一口径）----
 APP_NAME = "易码互传"
 APP_COMPANY = "易码通科技"
-APP_VERSION_NUM = "1.9.0"
+APP_VERSION_NUM = "1.10.0"
 APP_BUILD = "20260923"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
@@ -716,6 +716,27 @@ def text_history(limit=100):
         return list(_TEXT_HISTORY[-limit:])
 
 
+# ---- 推送到手机：电脑把文字放进队列，手机页轮询取回（保留最近 50 条） ----
+_PHONE_PUSH_LOCK = threading.Lock()
+_PHONE_PUSH_SEQ = [0]
+_PHONE_PUSH_ITEMS = []
+
+
+def phone_push_text(text):
+    with _PHONE_PUSH_LOCK:
+        _PHONE_PUSH_SEQ[0] += 1
+        item = {"id": _PHONE_PUSH_SEQ[0], "text": text,
+                "ts": int(time.time())}
+        _PHONE_PUSH_ITEMS.append(item)
+        del _PHONE_PUSH_ITEMS[:-50]
+        return item["id"]
+
+
+def phone_push_after(after_id):
+    with _PHONE_PUSH_LOCK:
+        return [dict(x) for x in _PHONE_PUSH_ITEMS if x["id"] > after_id]
+
+
 def _probe_live_instance(port=None):
     """端口上是否真有活着的易码互传在应答。
 
@@ -1121,6 +1142,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, text_history(100))
             return
 
+        if path == "/api/text/phone/messages":
+            # 手机页轮询：取走推送队列里 id 大于 after 的内容（?after=0 取最近 50 条）
+            try:
+                after = int(urllib.parse.parse_qs(parsed.query).get("after", ["0"])[0])
+            except Exception:
+                after = 0
+            self._json(200, {"ok": True, "messages": phone_push_after(after)})
+            return
+
         if path == "/api/local/update":
             self._json(200, {"phase": "idle", "message": "", "percent": 0,
                              "manifest": None, "error": ""})
@@ -1343,6 +1373,25 @@ a.btn:active{opacity:.85}
                 _text_record("sent", q.get("name", [ip])[0] or ip, text)
                 _log("[文字] 已发往 %s:%d %d 字" % (ip, prt, len(text)))
             self._json(200, {"ok": ok, "error": msg, "ip": ip, "port": prt})
+            return
+
+        if p == "/api/text/phone":
+            # 推送到手机：把文字放进队列，手机页轮询取回（仅本机控制台可推）
+            if not self._is_local():
+                self._deny_remote()
+                return
+            body = self._read_json_body() or {}
+            text = str(body.get("text") or "").strip()
+            if not text:
+                self._json(400, {"ok": False, "error": "没有内容可推送"})
+                return
+            if len(text) > TEXT_MAX_LEN:
+                self._json(400, {"ok": False,
+                                 "error": "文字过长（上限 %d 字）" % TEXT_MAX_LEN})
+                return
+            pid = phone_push_text(text)
+            _log("[推送] 已推送 %d 字到手机队列" % len(text))
+            self._json(200, {"ok": True, "id": pid})
             return
 
         if p == "/api/text/receive":
