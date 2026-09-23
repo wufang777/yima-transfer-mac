@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>易码互传 · 控制台（UI 重构方案预览）</title>
+<style>
+  :root{
+    --blue:#0a84ff; --blue-dark:#0060df; --orange:#ff9f0a; --red:#ff3b30;
+    --green:#30d158; --bg:#f2f2f5; --card:#ffffff; --text:#1d1d1f;
+    --sub:#86868b; --line:#e5e5ea; --radius:12px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+    display:flex; justify-content:center; padding:24px 16px 40px;
+  }
+  .wrap{width:100%; max-width:960px}
+
+  /* 方案说明条 */
+  .notice{
+    background:rgba(10,132,255,.08); border:1px solid rgba(10,132,255,.28);
+    border-radius:10px; padding:10px 14px; font-size:12.5px; color:#0060df;
+    margin-bottom:18px; line-height:1.7;
+  }
+  .notice b{font-weight:700}
+
+  /* 顶栏 */
+  header{display:flex; align-items:center; gap:12px; margin-bottom:18px}
+  header .logo{
+    width:44px;height:44px;border-radius:10px;
+    background:linear-gradient(135deg,#0a84ff,#0060df);
+    color:#fff; display:flex;align-items:center;justify-content:center;
+    font-size:20px; font-weight:800;
+  }
+  header h1{font-size:22px; font-weight:700}
+  header .tag{font-size:12px; color:var(--sub); margin-top:1px}
+  .badge{font-size:12px; color:var(--green); background:rgba(48,209,88,.12);
+    padding:4px 10px; border-radius:999px; font-weight:600}
+  .hbtns{margin-left:auto; display:flex; gap:8px; align-items:center}
+
+  button{border:none; cursor:pointer; font-size:13px; border-radius:8px;
+    padding:7px 14px; font-weight:600; transition:opacity .15s; font-family:inherit}
+  button:hover{opacity:.85}
+  button:active{opacity:.7}
+  .btn-blue{background:var(--blue); color:#fff}
+  .btn-ghost{background:var(--bg); color:var(--text); border:1px solid var(--line)}
+  .btn-red{background:transparent; color:var(--red)}
+  .btn-orange{background:var(--orange); color:#fff}
+  .btn-qr{background:#fff; border:1px solid var(--line); display:flex; align-items:center; gap:6px}
+
+  .grid2{display:grid; grid-template-columns:1.05fr .95fr; gap:16px; align-items:stretch}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+
+  .card{background:var(--card); border-radius:var(--radius); padding:20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; flex-direction:column}
+  .card h2{font-size:15px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+  .modno{margin-left:auto; font-size:11px; color:var(--sub); font-weight:500;
+    background:var(--bg); border:1px solid var(--line); padding:2px 8px; border-radius:999px}
+
+  /* 模块1：局域网设备 */
+  .peer{display:flex; align-items:center; gap:10px; padding:11px 4px;
+    border-bottom:1px solid var(--line); font-size:13px}
+  .peer:last-of-type{border-bottom:none}
+  .peer .dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+  .peer .pname{font-weight:500; min-width:86px}
+  .peer .pip{color:var(--sub); font-size:12px; flex:1}
+  .peer .acts{display:flex; gap:6px}
+  .peer .acts button{padding:4px 10px; font-size:12px}
+  .toolbar{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center}
+  input[type=text]{border:1px solid var(--line); border-radius:8px; padding:7px 10px;
+    font:inherit; font-size:13px; background:#fff; outline:none}
+  .meta{font-size:12px; color:var(--sub); line-height:1.8; margin-top:10px}
+  .empty{color:var(--sub); font-size:13px; text-align:center; padding:18px 0}
+
+  /* 模块2：文字互传（对话式） */
+  .chat{flex:1; display:flex; flex-direction:column; gap:10px; padding:6px 2px 10px;
+    max-height:300px; overflow-y:auto}
+  .bubble{max-width:78%; padding:9px 13px; border-radius:14px; font-size:13px; line-height:1.6}
+  .bubble .who{font-size:11px; color:var(--sub); margin-bottom:3px}
+  .bubble .txt{white-space:pre-wrap; word-break:break-all}
+  .b-recv{align-self:flex-start; background:var(--bg); border:1px solid var(--line);
+    border-bottom-left-radius:4px}
+  .b-send{align-self:flex-end; background:rgba(10,132,255,.10); border:1px solid rgba(10,132,255,.25);
+    border-bottom-right-radius:4px}
+  .chatbar{display:flex; gap:8px; align-items:flex-end; margin-top:auto}
+  .chatbar textarea{flex:1; border:1px solid var(--line); border-radius:10px; padding:10px;
+    font:inherit; font-size:13px; resize:none; outline:none; height:64px}
+  .chatbar .col{display:flex; flex-direction:column; gap:6px}
+
+  /* 模块3：文件互传 Tabs */
+  .tabs{display:flex; gap:0; border:1px solid var(--line); border-radius:10px;
+    overflow:hidden; width:max-content; margin-bottom:14px}
+  .tabs button{border-radius:0; padding:8px 22px; background:#fff; color:var(--sub); font-size:13px}
+  .tabs button.on{background:var(--blue); color:#fff}
+  .tabpane{display:none}
+  .tabpane.on{display:block}
+  .fitem{display:flex; align-items:center; gap:10px; padding:9px 4px;
+    border-bottom:1px solid var(--line); font-size:13px}
+  .fitem:last-child{border-bottom:none}
+  .fitem .name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500}
+  .fitem .size{color:var(--sub); font-size:12px; white-space:nowrap}
+  .fitem button{padding:4px 10px; font-size:12px}
+  .fitem .icon{font-size:16px; width:22px; text-align:center}
+
+  /* 模块4：版本精简条 */
+  .verbar{display:flex; align-items:center; gap:16px; flex-wrap:wrap}
+  .verbar .vnum{font-size:16px; font-weight:700; font-family:ui-monospace,Menlo,monospace}
+  .verbar .vmeta{font-size:12px; color:var(--sub)}
+  .verbar .sp{flex:1}
+
+  footer{text-align:center; color:var(--sub); font-size:12px; margin-top:24px}
+
+  .toast{position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
+    background:rgba(29,29,31,.92); color:#fff; font-size:13px; padding:10px 18px;
+    border-radius:999px; opacity:0; pointer-events:none; transition:opacity .25s; z-index:99}
+  .toast.show{opacity:1}
+
+  /* 连接码弹窗（原左上角卡收进这里） */
+  .modal{display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:60;
+    align-items:center; justify-content:center}
+  .modal.show{display:flex}
+  .mbox{background:#fff; border-radius:14px; padding:22px; max-width:480px; width:92%;
+    box-shadow:0 12px 40px rgba(0,0,0,.25); text-align:center}
+  .mbox h3{font-size:16px; margin-bottom:4px}
+  .mbox .msub{font-size:12px; color:var(--sub); margin-bottom:14px}
+  .mbox .qr{width:196px; height:196px; margin:0 auto; border:1px solid var(--line);
+    border-radius:12px; padding:8px; background:#fff}
+  .mbox .qr img{width:100%; height:100%}
+  .urlbox{display:flex; gap:8px; align-items:center; margin-top:14px; background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:9px 12px; font-size:13px}
+  .urlbox code{flex:1; font-family:ui-monospace,Menlo,monospace; word-break:break-all; text-align:left}
+  .muse{display:flex; gap:10px; margin-top:14px}
+  .muse div{flex:1; background:var(--bg); border:1px solid var(--line); border-radius:10px;
+    padding:10px; font-size:12px; color:var(--sub); line-height:1.7}
+  .muse b{color:var(--text); display:block; font-size:12.5px; margin-bottom:2px}
+  .mclose{margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="notice">
+    <b>UI 重构方案预览</b> —— 左上角「手机连接」大二维码卡片已移除，收进顶栏「连接码」弹窗；功能模块重新分区为：
+    <b>① 局域网设备 → ② 文字互传（对话式）→ ③ 文件互传（双标签合并）→ ④ 版本精简条</b>。
+    本页为演示数据，未改动现有程序。
+  </div>
+
+  <!-- ═══ 顶栏：状态 + 连接码入口 + 设置入口 ═══ -->
+  <header>
+    <div class="logo">易</div>
+    <div>
+      <h1>易码互传 · 控制台</h1>
+      <div class="tag">局域网文件互传 · 易码通科技</div>
+    </div>
+    <span class="badge">运行中 · v1.10.0</span>
+    <div class="hbtns">
+      <button class="btn-qr" id="qrbtn">🔗 连接码</button>
+      <button class="btn-ghost" onclick="demo()">⚙ 设置</button>
+    </div>
+  </header>
+
+  <div class="grid2">
+    <!-- ═══ 模块①：局域网设备 ═══ -->
+    <div class="card">
+      <h2><span class="dot"></span>局域网设备<span class="modno">模块 ①</span></h2>
+      <div class="peer">
+        <span class="dot"></span>
+        <span class="pname">办公室-Win</span>
+        <span class="pip">192.168.10.21:8000 · 在线</span>
+        <span class="acts"><button class="btn-orange">发文件</button><button class="btn-ghost">发文字</button></span>
+      </div>
+      <div class="peer">
+        <span class="dot"></span>
+        <span class="pname">车间一体机</span>
+        <span class="pip">192.168.10.35:8000 · 在线</span>
+        <span class="acts"><button class="btn-orange">发文件</button><button class="btn-ghost">发文字</button></span>
+      </div>
+      <div class="peer">
+        <span class="dot" style="background:#c7c7cc"></span>
+        <span class="pname">同事的MacBook</span>
+        <span class="pip">192.168.10.44:8000 · 手动添加</span>
+        <span class="acts"><button class="btn-orange">发文件</button><button class="btn-ghost">发文字</button></span>
+      </div>
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn-blue" onclick="demo()">重新扫描</button>
+        <input type="text" placeholder="对方 IP，如 192.168.10.66" style="flex:1;min-width:150px">
+        <button class="btn-ghost" onclick="demo()">手动添加</button>
+      </div>
+      <div class="toolbar">
+        <button class="btn-blue" onclick="demo()">📷 扫码连接对方</button>
+        <button class="btn-ghost" onclick="document.getElementById('qrmodal').classList.add('show')">出示我的连接码</button>
+      </div>
+      <div class="meta">两台电脑都运行易码互传即可互相发现；扫对方连接码或填 IP 均可添加。手机无需安装，扫「连接码」直接开网页互传。</div>
+    </div>
+
+    <!-- ═══ 模块②：文字互传（对话式） ═══ -->
+    <div class="card">
+      <h2><span class="dot" style="background:var(--green)"></span>文字互传<span class="modno">模块 ②</span></h2>
+      <div style="font-size:12px; color:var(--sub); margin-bottom:6px">与 <b style="color:var(--text)">办公室-Win</b> 对话中 · 收到的文字自动进剪贴板</div>
+      <div class="chat">
+        <div class="bubble b-recv">
+          <div class="who">来自 办公室-Win · 15:02</div>
+          <div class="txt">这个吊牌的印刷文件发我一下，客户等着确认</div>
+        </div>
+        <div class="bubble b-send">
+          <div class="who">15:03</div>
+          <div class="txt">稍等，马上用「发文件」传给你</div>
+        </div>
+        <div class="bubble b-recv">
+          <div class="who">来自 办公室-Win · 15:04</div>
+          <div class="txt">收到了，剪贴板里也有了，方便 👍</div>
+        </div>
+        <div class="bubble b-recv">
+          <div class="who">来自 手机 · 15:10</div>
+          <div class="txt">我在车间拍的返工照片，看下邮件尺寸对不对</div>
+        </div>
+      </div>
+      <div class="chatbar">
+        <textarea placeholder="输入文字，⌘+回车 发送到所选设备…"></textarea>
+        <div class="col">
+          <select id="tsel" style="padding:7px 8px;border-radius:8px;border:1px solid var(--line);font:inherit;font-size:12.5px">
+            <option>发给 办公室-Win</option>
+            <option>发给 车间一体机</option>
+            <option>发给 手机（网页）</option>
+          </select>
+          <button class="btn-blue" onclick="demo()">发送</button>
+          <button class="btn-ghost" style="font-size:12px" onclick="demo()">推送到手机</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 模块③：文件互传（双标签） ═══ -->
+  <div class="card" style="margin-top:16px">
+    <h2><span class="dot" style="background:var(--orange)"></span>文件互传<span class="modno">模块 ③</span></h2>
+    <div class="tabs">
+      <button class="on" data-tab="t1" onclick="swtab(this,'t1')">📤 发送到手机</button>
+      <button data-tab="t2" onclick="swtab(this,'t2')">📥 已接收的文件</button>
+    </div>
+
+    <div class="tabpane on" id="t1">
+      <div class="toolbar">
+        <button class="btn-blue" onclick="demo()">选择文件…</button>
+        <button class="btn-ghost" onclick="demo()">全部取消分享</button>
+      </div>
+      <div class="fitem"><span class="icon">📄</span><span class="name">摩洛恩防伪系统-规格说明.pdf</span><span class="size">2.4 MB</span><button class="btn-ghost">显示</button><button class="btn-red">取消分享</button></div>
+      <div class="fitem"><span class="icon">🖼</span><span class="name">准者-竖屏视频-成片.mp4</span><span class="size">148.6 MB</span><button class="btn-ghost">显示</button><button class="btn-red">取消分享</button></div>
+      <div class="meta">手机扫「连接码」打开页面后，在「电脑发来的文件」里点一下即可下载。</div>
+    </div>
+
+    <div class="tabpane" id="t2">
+      <div class="toolbar">
+        <button class="btn-ghost" onclick="demo()">刷新</button>
+        <button class="btn-blue" onclick="demo()">打开接收目录</button>
+      </div>
+      <div class="fitem"><span class="icon">📄</span><span class="name">校服订购小程序-续签合同.docx</span><span class="size">86 KB</span><button class="btn-blue">下载</button><button class="btn-orange">发给手机</button><button class="btn-ghost">显示</button><button class="btn-red">删除</button></div>
+      <div class="fitem"><span class="icon">📊</span><span class="name">易码AI-报价明细-0902.xlsx</span><span class="size">1.1 MB</span><button class="btn-blue">下载</button><button class="btn-orange">发给手机</button><button class="btn-ghost">显示</button><button class="btn-red">删除</button></div>
+      <div class="fitem"><span class="icon">🗜</span><span class="name">auto-montage-offline-mac-20260920.zip</span><span class="size">312.9 MB</span><button class="btn-blue">下载</button><button class="btn-orange">发给手机</button><button class="btn-ghost">显示</button><button class="btn-red">删除</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ 模块④：版本精简条 ═══ -->
+  <div class="card" style="margin-top:16px; padding:14px 20px">
+    <div class="verbar">
+      <span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--orange)"></span>
+      <span class="vnum">v1.10.0</span>
+      <span class="vmeta">构建 20260923 · 正式版 · 2026-09-23</span>
+      <span class="sp"></span>
+      <button class="btn-blue" onclick="demo()">检查更新</button>
+      <button class="btn-ghost" onclick="demo()">更新设置</button>
+    </div>
+  </div>
+
+  <footer>易码互传 · UI 重构方案演示稿 · © 易码通科技</footer>
+</div>
+
+<!-- 连接码弹窗（原「手机连接」卡片内容收纳于此） -->
+<div class="modal" id="qrmodal">
+  <div class="mbox">
+    <h3>本机连接码</h3>
+    <div class="msub">一码两用 · 局域网内有效</div>
+    <div class="qr"><img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOTYiIGhlaWdodD0iMjk2IiBjbGFzcz0ic2Vnbm8iPjxnIHRyYW5zZm9ybT0ic2NhbGUoOCkiPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0wIDBoMzd2MzdoLTM3eiIvPjxwYXRoIGNsYXNzPSJxcmxpbmUiIHN0cm9rZT0iIzFkMWQxZiIgZD0iTTIgMi41aDdtMSAwaDltMyAwaDVtMSAwaDdtLTMzIDFoMW01IDBoMW0zIDBoNW0zIDBoNW0xIDBoMW0xIDBoMW01IDBoMW0tMzMgMWgxbTEgMGgzbTEgMGgxbTIgMGgzbTIgMGgxbTIgMGgzbTEgMGgxbTIgMGgxbTEgMGgxbTEgMGgzbTEgMGgxbS0zMyAxaDFtMSAwaDNtMSAwaDFtMSAwaDJtNiAwaDJtMSAwaDFtMyAwaDFtMiAwaDFtMSAwaDNtMSAwaDFtLTMzIDFoMW0xIDBoM20xIDBoMW0xIDBoMm0xIDBoMm0zIDBoMm0xIDBoMW0xIDBoMW0xIDBoMW0yIDBoMW0xIDBoM20xIDBoMW0tMzMgMWgxbTUgMGgxbTEgMGgxbTEgMGgybTMgMGgxbTIgMGgxbTEgMGgxbTUgMGgxbTUgMGgxbS0zMyAxaDdtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtMSAwaDdtLTI1IDFoM20xIDBoMW00IDBoMW0xIDBoNG0xIDBoMW0tMjUgMWgxbTMgMGgxbTEgMGg0bTEgMGgxbTMgMGgxbTEgMGgybTIgMGgxbTEgMGgxbTEgMGg1bTIgMGgxbS0zMyAxaDRtMyAwaDFtMSAwaDJtMSAwaDFtMSAwaDRtMiAwaDJtMSAwaDJtNCAwaDJtLTMxIDFoMW0yIDBoMm0xIDBoMW0xIDBoM20xIDBoNG0yIDBoMW0zIDBoNW0yIDBoMW0tMzAgMWgxbTEgMGgxbTIgMGgxbTMgMGgybTEgMGgybTUgMGgxbTEgMGgxbTEgMGgxbTEgMGgxbS0yNSAxaDRtMSAwaDFtMSAwaDFtMiAwaDNtMSAwaDJtMiAwaDNtMiAwaDFtMSAwaDRtMiAwaDFtLTMyIDFoMW0xIDBoMW00IDBoN20zIDBoNG0xIDBoMW0xIDBoMm0yIDBoMW0tMjYgMWgxbTEgMGgxbTEgMGgxbTQgMGgxbTEgMGgxbTEgMGgxbTUgMGgxbTQgMGgxbTEgMGgybS0zMiAxaDFtMSAwaDFtMiAwaDFtMyAwaDNtMiAwaDRtMyAwaDJtMiAwaDFtMiAwaDFtLTI4IDFoMW0xIDBoMW0yIDBoMm0xIDBoMW0xIDBoNG0yIDBoM20xIDBoMW0zIDBoMm0xIDBoMW0yIDBoMW0tMzEgMWgxbTIgMGgybTEgMGgxbTEgMGgzbTEgMGg0bTMgMGg1bTQgMGgybS0yNyAxaDFtMSAwaDFtMiAwaDNtMSAwaDFtMSAwaDFtMSAwaDFtMiAwaDJtMSAwaDFtMSAwaDJtMiAwaDFtMSAwaDFtLTMxIDFoMm0xIDBoMW0yIDBoM20xIDBoNG0xIDBoM20yIDBoMW0yIDBoMm01IDBoMm0tMzMgMWgybTQgMGgzbTEgMGgxbTEgMGgxbTUgMGgzbTEgMGgzbTEgMGgxbTEgMGgybTEgMGgybS0zMyAxaDFtMSAwaDRtMiAwaDFtMSAwaDNtMyAwaDFtMiAwaDJtMSAwaDFtMiAwaDFtMSAwaDFtMSAwaDFtMSAwaDFtLTI5IDFoMm0xIDBoMW0xIDBoMm0yIDBoM20xIDBoMm0yIDBoNW0xIDBoMW0xIDBoNG0tMjkgMWgxbTEgMGgxbTIgMGgxbTIgMGgxbTEgMGgybTIgMGgxbTEgMGgzbTMgMGgxbTYgMGgxbS0zMyAxaDNtMSAwaDFtMSAwaDFtMiAwaDFtMiAwaDFtMSAwaDJtMSAwaDJtMiAwaDFtMiAwaDVtMiAwaDJtLTI1IDFoMW0xIDBoMW00IDBoM20yIDBoMW0xIDBoMW0xIDBoMW0zIDBoMW0xIDBoMm0tMzIgMWg3bTEgMGgzbTEgMGgxbTIgMGgxbTIgMGgxbTIgMGgybTEgMGgxbTEgMGgxbTEgMGgybTEgMGgxbS0zMiAxaDFtNSAwaDFtMiAwaDFtMSAwaDJtNiAwaDZtMyAwaDJtMSAwaDFtLTMyIDFoMW0xIDBoM20xIDBoMW0xIDBoNW0yIDBoMm0zIDBoM20xIDBoNm0yIDBoMW0tMzMgMWgxbTEgMGgzbTEgMGgxbTIgMGgxbTEgMGgxbTEgMGgybTMgMGgxbTMgMGgxbTIgMGgybTEgMGgxbTEgMGgxbS0zMSAxaDFtMSAwaDNtMSAwaDFtNCAwaDFtMyAwaDFtMSAwaDFtMyAwaDNtMSAwaDRtLTI5IDFoMW01IDBoMW00IDBoMW0xIDBoMW0xIDBoM20xIDBoMW0xIDBoNG0yIDBoMW0tMjggMWg3bTEgMGgybTIgMGgzbTIgMGg1bTEgMGgybTEgMGgxbTEgMGgxbTMgMGgxIi8+PC9nPjwvc3ZnPgo=" alt="连接码"></div>
+    <div class="urlbox"><code>http://192.168.10.12:8000/connect?name=MacBook-Pro</code><button class="btn-blue" onclick="demo()">复制</button></div>
+    <div class="muse">
+      <div><b>📱 手机扫码</b>直接打开网页版，上传 / 下载文件、发送文字到电脑</div>
+      <div><b>💻 电脑扫码</b>对方控制台点「扫码连接」扫此码，自动添加本机为设备</div>
+    </div>
+    <button class="btn-ghost mclose" onclick="document.getElementById('qrmodal').classList.remove('show')">关闭</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function demo(){
+  const t = document.getElementById('toast');
+  t.textContent = '演示稿：此按钮为占位，交互将在正式版实现';
+  t.classList.add('show');
+  clearTimeout(t._tm); t._tm = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+document.getElementById('qrbtn').onclick = ()=>document.getElementById('qrmodal').classList.add('show');
+document.getElementById('qrmodal').addEventListener('click', e=>{
+  if(e.target.id==='qrmodal') e.target.classList.remove('show');
+});
+function swtab(btn, id){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  document.querySelectorAll('.tabpane').forEach(p=>p.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+}
+</script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-page-node-id="BpWTMZstS57jSNfVBWHSy8">
-<head data-page-node-id="FOKABDphVD9OeXccI28Fir">
-<meta charset="UTF-8" data-page-node-id="CbeivVmdQ4AbdBTmRJM6lx">
-<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="CJceBja0R3dQ8ONEweBAXj">
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>易码互传 · 控制台</title>
 <style>
   :root{
@@ -14,65 +14,97 @@
   body{
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
     background:var(--bg); color:var(--text); min-height:100vh;
-    display:flex; justify-content:center; padding:32px 16px;
+    display:flex; justify-content:center; padding:28px 16px 40px;
   }
-  .wrap{width:100%; max-width:860px}
-  header{display:flex; align-items:center; gap:12px; margin-bottom:24px}
+  .wrap{width:100%; max-width:960px}
+
+  /* 顶栏 */
+  header{display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap}
   header img{width:44px;height:44px;border-radius:10px}
   header h1{font-size:22px; font-weight:700}
-  header .tag{font-size:12px; color:var(--sub)}
-  .badge{margin-left:auto; font-size:12px; color:var(--green); background:rgba(48,209,88,.12);
+  header .tag{font-size:12px; color:var(--sub); margin-top:1px}
+  .badge{font-size:12px; color:var(--green); background:rgba(48,209,88,.12);
     padding:4px 10px; border-radius:999px; font-weight:600}
   .badge.off{color:var(--red); background:rgba(255,59,48,.12)}
-  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px}
-  @media(max-width:720px){.grid{grid-template-columns:1fr}}
-  .card{background:var(--card); border-radius:var(--radius); padding:20px;
-    box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  .card h2{font-size:15px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px}
-  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
-  .full{grid-column:1/-1}
-  .urlbox{display:flex; gap:8px; align-items:center; background:var(--bg);
-    border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:14px}
-  .urlbox code{flex:1; font-family:ui-monospace,Menlo,monospace; word-break:break-all}
+  .hbtns{margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+
   button{border:none; cursor:pointer; font-size:13px; border-radius:8px;
-    padding:7px 14px; font-weight:600; transition:opacity .15s}
+    padding:7px 14px; font-weight:600; transition:opacity .15s; font-family:inherit}
   button:hover{opacity:.85}
   button:active{opacity:.7}
   .btn-blue{background:var(--blue); color:#fff}
   .btn-ghost{background:var(--bg); color:var(--text); border:1px solid var(--line)}
   .btn-red{background:transparent; color:var(--red)}
   .btn-orange{background:var(--orange); color:#fff}
-  .qr{display:flex; gap:16px; align-items:center; margin-top:14px}
-  .qr img{width:132px; height:132px; border:1px solid var(--line); border-radius:8px}
-  .qr .hint{font-size:13px; color:var(--sub); line-height:1.7}
-  .filelist{margin-top:8px}
+  .btn-qr{background:#fff; border:1px solid var(--line)}
+
+  .grid2{display:grid; grid-template-columns:1.05fr .95fr; gap:16px; align-items:stretch}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+
+  .card{background:var(--card); border-radius:var(--radius); padding:20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; flex-direction:column}
+  .card h2{font-size:15px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+
+  /* 模块① 局域网设备 */
+  .peer{display:flex; align-items:center; gap:10px; padding:10px 4px;
+    border-bottom:1px solid var(--line); font-size:13px}
+  .peer:last-of-type{border-bottom:none}
+  .peer .dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+  .peer .pname{font-weight:500; min-width:86px}
+  .peer .pip{color:var(--sub); font-size:12px; flex:1}
+  .peer .acts{display:flex; gap:6px}
+  .peer .acts button{padding:4px 10px; font-size:12px}
+  .toolbar{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center}
+  .toolbar input{flex:1;min-width:150px;border:1px solid var(--line); border-radius:8px;
+    padding:7px 10px; font:inherit; font-size:13px; background:#fff; outline:none}
+  .meta{font-size:12px; color:var(--sub); line-height:1.8; margin-top:10px}
+  .empty{color:var(--sub); font-size:13px; text-align:center; padding:18px 0}
+
+  /* 模块② 文字互传（对话式） */
+  .chat{flex:1; display:flex; flex-direction:column; gap:10px; padding:6px 2px 10px;
+    max-height:300px; overflow-y:auto}
+  .bubble{max-width:82%; padding:9px 13px; border-radius:14px; font-size:13px;
+    line-height:1.6; cursor:pointer}
+  .bubble .who{font-size:11px; color:var(--sub); margin-bottom:3px}
+  .bubble .txt{white-space:pre-wrap; word-break:break-all}
+  .b-recv{align-self:flex-start; background:var(--bg); border:1px solid var(--line);
+    border-bottom-left-radius:4px}
+  .b-send{align-self:flex-end; background:rgba(10,132,255,.10); border:1px solid rgba(10,132,255,.25);
+    border-bottom-right-radius:4px}
+  .chatbar{display:flex; gap:8px; align-items:stretch; margin-top:auto}
+  .chatbar textarea{flex:1; border:1px solid var(--line); border-radius:10px; padding:10px;
+    font:inherit; font-size:13px; resize:none; outline:none; height:76px}
+  .chatbar .col{display:flex; flex-direction:column; gap:6px; justify-content:flex-end}
+  .chatbar select{padding:7px 8px; border-radius:8px; border:1px solid var(--line);
+    font:inherit; font-size:12.5px; background:#fff; outline:none}
+
+  /* 模块③ 文件互传 Tabs */
+  .tabs{display:flex; border:1px solid var(--line); border-radius:10px;
+    overflow:hidden; width:max-content; margin-bottom:14px}
+  .tabs button{border-radius:0; padding:8px 22px; background:#fff; color:var(--sub); font-size:13px}
+  .tabs button.on{background:var(--blue); color:#fff}
+  .tabpane{display:none}
+  .tabpane.on{display:block}
   .fitem{display:flex; align-items:center; gap:10px; padding:9px 4px;
     border-bottom:1px solid var(--line); font-size:13px}
   .fitem:last-child{border-bottom:none}
   .fitem .name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500}
   .fitem .size{color:var(--sub); font-size:12px; white-space:nowrap}
   .fitem button{padding:4px 10px; font-size:12px}
-  .empty{color:var(--sub); font-size:13px; text-align:center; padding:18px 0}
-  .peer{display:flex; align-items:center; gap:10px; padding:10px 4px;
-    border-bottom:1px solid var(--line); font-size:13px}
-  .peer:last-child{border-bottom:none}
-  .peer .dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
-  .peer .pname{flex:1; font-weight:500}
-  .peer .pip{color:var(--sub); font-size:12px}
-  .toolbar{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap}
-  .meta{font-size:12px; color:var(--sub); margin-top:10px; line-height:1.8}
-  footer{text-align:center; color:var(--sub); font-size:12px; margin-top:28px}
-  .toast{position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
-    background:rgba(29,29,31,.92); color:#fff; font-size:13px; padding:10px 18px;
-    border-radius:999px; opacity:0; pointer-events:none; transition:opacity .25s}
-  .toast.show{opacity:1}
-  .prog{height:4px; background:var(--bg); border-radius:2px; margin-top:6px; overflow:hidden}
-  .prog i{display:block; height:100%; width:0; background:var(--blue); transition:width .2s}
 
-  /* 版本与更新 */
-  .verline{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
-  .verline .vnum{font-size:20px; font-weight:700; font-family:ui-monospace,Menlo,monospace}
-  .verline .vmeta{font-size:12px; color:var(--sub)}
+  /* 模块④ 版本精简条 */
+  .vercard{padding:14px 20px}
+  .verbar{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+  .verbar .dot{width:8px;height:8px;border-radius:50%;background:var(--orange);flex-shrink:0}
+  .verbar .vnum{font-size:16px; font-weight:700; font-family:ui-monospace,Menlo,monospace}
+  .verbar .vmeta{font-size:12px; color:var(--sub)}
+  .verbar .vmeta b{color:var(--text); font-weight:600}
+  .verbar .sp{flex:1}
+  .vfeed{font-size:11px; color:var(--sub); margin-top:6px}
+  .vfeed b{font-weight:500; word-break:break-all}
+
+  /* 更新状态框（沿用） */
   .updbox{margin-top:12px; padding:12px; border-radius:10px; background:var(--bg);
     border:1px solid var(--line); font-size:13px; line-height:1.7; display:none}
   .updbox.show{display:block}
@@ -82,144 +114,181 @@
   .updbox .t{font-weight:700; margin-bottom:6px}
   .updbox ul{margin:6px 0 0 18px; color:var(--text)}
   .updbox li{margin:2px 0}
-  .vercell{display:flex; gap:24px; flex-wrap:wrap; margin-top:6px}
-  .vercell div{font-size:12px; color:var(--sub)}
-  .vercell b{display:block; font-size:14px; color:var(--text); font-weight:600; margin-top:2px}
+  .prog{height:4px; background:var(--bg); border-radius:2px; margin-top:6px; overflow:hidden}
+  .prog i{display:block; height:100%; width:0; background:var(--blue); transition:width .2s}
+
+  footer{text-align:center; color:var(--sub); font-size:12px; margin-top:24px}
+
+  .toast{position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
+    background:rgba(29,29,31,.92); color:#fff; font-size:13px; padding:10px 18px;
+    border-radius:999px; opacity:0; pointer-events:none; transition:opacity .25s; z-index:99}
+  .toast.show{opacity:1}
+
+  /* 连接码弹窗（原「手机连接」卡片收纳于此，一码两用） */
+  .modal{display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:70;
+    align-items:center; justify-content:center}
+  .modal.show{display:flex}
+  .mbox{background:#fff; border-radius:14px; padding:22px; max-width:480px; width:92%;
+    box-shadow:0 12px 40px rgba(0,0,0,.25); text-align:center}
+  .mbox h3{font-size:16px; margin-bottom:4px}
+  .mbox .msub{font-size:12px; color:var(--sub); margin-bottom:14px}
+  .mbox .qr{width:196px; height:196px; margin:0 auto; border:1px solid var(--line);
+    border-radius:12px; padding:8px; background:#fff; cursor:zoom-in}
+  .mbox .qr img{width:100%; height:100%}
+  .urlbox{display:flex; gap:8px; align-items:center; margin-top:14px; background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:9px 12px; font-size:13px}
+  .urlbox code{flex:1; font-family:ui-monospace,Menlo,monospace; word-break:break-all; text-align:left}
+  .muse{display:flex; gap:10px; margin-top:14px}
+  .muse div{flex:1; background:var(--bg); border:1px solid var(--line); border-radius:10px;
+    padding:10px; font-size:12px; color:var(--sub); line-height:1.7; text-align:left}
+  .muse b{color:var(--text); display:block; font-size:12.5px; margin-bottom:2px}
+  .mclose{margin-top:16px}
+
+  /* 扫码连接弹窗（沿用） */
+  #scanmodal .mbox2{background:#fff;border-radius:14px;padding:18px;max-width:460px;width:92%;
+    box-shadow:0 12px 40px rgba(0,0,0,.25)}
+  #scanmodal h2{margin:0 0 10px;font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px}
+  #scanmodal .dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
 </style>
 </head>
-<body data-page-node-id="YzaMHGDKBZzCWrSQxl1cLe">
-<div class="wrap" data-page-node-id="Tl8y9FEKp4vhpa8FBSPRc9">
-  <header data-page-node-id="kDSpqWJRdJYBRqigHSRpGq">
-    <img src="/logo.png" alt="易码互传" onerror="this.style.display='none'" data-page-node-id="Ld0wc4CmjJbcambSz3kBVz">
-    <div data-page-node-id="Ko3KoPj0Bstz5R1TN7tcYo">
-      <h1 data-page-node-id="8KGnCAXhbc5GFnFmFSxtOd">易码互传 · 控制台</h1>
-      <div class="tag" data-page-node-id="gl24m6hQTw7YQvFlQogM3p">局域网文件互传 · 易码通科技</div>
+<body>
+<div class="wrap">
+
+  <!-- ═══ 顶栏：logo + 状态 + 连接码入口 + 设置入口 ═══ -->
+  <header>
+    <img src="/logo.png" alt="易码互传" onerror="this.style.display='none'">
+    <div>
+      <h1>易码互传 · 控制台</h1>
+      <div class="tag">局域网文件互传 · 易码通科技</div>
     </div>
-    <span class="badge" id="badge" data-page-node-id="6E17QpIt4A8U9KywSnqQyp">运行中</span>
+    <span class="badge" id="badge">运行中</span>
+    <div class="hbtns">
+      <button class="btn-qr" id="qrbtn">🔗 连接码</button>
+      <button class="btn-ghost" id="hsettings">⚙ 设置</button>
+    </div>
   </header>
 
-  <div class="grid" data-page-node-id="5T3c2z41GXDfD5HQAsycX2">
-    <!-- 连接信息 -->
-    <div class="card" data-page-node-id="oreudB6lf1FmmvnR4FIbDB">
-      <h2 data-page-node-id="0eun5jczFVftCh6v80NSI3"><span class="dot" data-page-node-id="sSPiCy3deYeUuLEH3Zs20A"></span>手机连接</h2>
-      <div class="urlbox" data-page-node-id="Or7rhlqTmQrAl68Vv2mHHl"><code id="url" data-page-node-id="dJGOXTdZalTMLLi0N3Dtdm">…</code><button class="btn-blue" id="copy" data-page-node-id="YwhN6TLvNatQ9LROOcO8Jy">复制</button></div>
-      <div class="qr" data-page-node-id="HK1WJHgrYBsOxGcQxWAF3B">
-        <img id="qr" src="/qr.png" alt="二维码" data-page-node-id="feUSt5J6jHHCaGfRcxVtcr">
-        <div class="hint" data-page-node-id="psYuqneCvs5FunWTcieJh5">
-          手机与电脑连同一 WiFi，<br data-page-node-id="q4x2BCuR6i02lMJRaVuSFq">扫左侧二维码即可上传 / 下载。<br data-page-node-id="aKtMcyIZzYwaUBkuTLq5eZ">
-          若扫码打不开，可手动输入上方地址。
-        </div>
+  <div class="grid2">
+    <!-- ═══ 模块①：局域网设备 ═══ -->
+    <div class="card">
+      <h2><span class="dot"></span>局域网设备</h2>
+      <div id="peers" class="filelist"><div class="empty">正在扫描局域网…</div></div>
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn-blue" id="scanlan">重新扫描</button>
+        <input id="peerip" placeholder="对方 IP，如 192.168.10.66">
+        <button class="btn-ghost" id="addpeer">手动添加</button>
       </div>
-    </div>
-
-    <!-- 局域网设备 -->
-    <div class="card" data-page-node-id="TZuz8unYwRsKa1AaYRFDL1">
-      <h2 data-page-node-id="v3x1V5xyBD6eg2Ewl7Ewvo"><span class="dot" data-page-node-id="nmxu2v91xtCj7sG2r3lKns"></span>局域网设备</h2>
-      <div id="peers" class="filelist" data-page-node-id="V99merdkJN7DEdZAogutSW"><div class="empty" data-page-node-id="f6PxHQCGWgVIjWPDbxQDje">正在扫描局域网…</div></div>
-      <div class="toolbar" style="margin-top:10px">
-        <button class="btn-blue" id="scanlan">重新扫描局域网</button>
-        <input id="peerip" placeholder="对方 IP，如 192.168.10.12" style="flex:1;min-width:180px">
-        <button class="btn-orange" id="addpeer">手动添加</button>
-      </div>
-      <div class="meta" data-page-node-id="jtT9CG0GAwGM8EIDg5MG7z">两台电脑都运行易码互传即可互相发现；选择对方设备发送文件。若广播被路由器拦截，用「手动添加」填对方 IP 也能互传。</div>
-      <div class="toolbar" style="margin-top:12px;align-items:center;gap:12px">
-        <img id="myqr" src="/connect-qr.png" alt="本机连接码"
-             style="width:96px;height:96px;border-radius:10px;border:1px solid var(--line,#ddd);background:#fff;cursor:zoom-in"
-             title="点击放大">
-        <div style="flex:1;min-width:210px">
-          <div class="meta" style="margin:0 0 8px">这是<b>本机连接码</b>：<b>手机扫码</b>直接打开传文件页面；<b>电脑扫码</b>（对方控制台点「扫码连接」）自动添加本机为设备。点击可放大，方便隔屏扫描。</div>
-          <button class="btn-blue" id="scanbtn">扫码连接对方</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 互传文字 -->
-    <div class="card full" id="textcard">
-      <h2><span class="dot" style="background:var(--blue,#3b82f6)"></span>互传文字</h2>
       <div class="toolbar">
-        <select id="textpeer" style="flex:0 0 240px;min-width:200px;padding:8px;border-radius:8px;border:1px solid var(--line,#ddd);font:inherit"></select>
-        <button class="btn-blue" id="textsend">发送文字</button>
-        <button class="btn-ghost" id="textpush">推送到手机</button>
+        <button class="btn-blue" id="scanbtn">📷 扫码连接对方</button>
+        <button class="btn-ghost" id="showmyqr">出示我的连接码</button>
       </div>
-      <textarea id="textinput" rows="3"
-        placeholder="输入要发送的文字，对方收到后自动复制到剪贴板（Ctrl/⌘ + 回车 发送）"
-        style="width:100%;box-sizing:border-box;border:1px solid var(--line,#ddd);border-radius:8px;padding:10px;font:inherit;margin-top:10px;resize:vertical"></textarea>
-      <div id="textmsgs" class="filelist" style="max-height:260px;overflow-y:auto"></div>
-      <div class="meta">文字会直接送到对方电脑（自动复制进对方剪贴板并弹通知）；点击任意一条消息可复制内容。记录保留最近 100 条。</div>
+      <div class="meta">两台电脑都运行易码互传即可互相发现；扫对方连接码或填 IP 均可添加。手机无需安装，扫「连接码」直接开网页互传。</div>
     </div>
 
-    <!-- 发送文件到手机 -->
-    <div class="card full" id="sendcard">
-      <h2><span class="dot" style="background:var(--green)"></span>发送文件到手机</h2>
+    <!-- ═══ 模块②：文字互传（对话式） ═══ -->
+    <div class="card" id="textcard">
+      <h2><span class="dot" style="background:var(--green)"></span>文字互传</h2>
+      <div id="textmsgs" class="chat"><div class="empty">还没有消息 —— 选好设备、输入文字即可互发</div></div>
+      <div class="chatbar">
+        <textarea id="textinput" rows="3"
+          placeholder="输入文字，⌘/Ctrl + 回车 发送到所选设备；对方收到后自动复制到剪贴板"></textarea>
+        <div class="col">
+          <select id="textpeer"><option value="">— 选择设备 —</option></select>
+          <button class="btn-blue" id="textsend">发送</button>
+          <button class="btn-ghost" id="textpush" style="font-size:12px">推送到手机</button>
+        </div>
+      </div>
+      <div class="meta">发往电脑：自动进对方剪贴板并弹通知；「推送到手机」：手机页面 3 秒内显示、点「复制」取用。点击任意气泡可复制内容，记录保留最近 100 条。</div>
+    </div>
+  </div>
+
+  <!-- ═══ 模块③：文件互传（双标签） ═══ -->
+  <div class="card" id="filecard" style="margin-top:16px">
+    <h2><span class="dot" style="background:var(--orange)"></span>文件互传</h2>
+    <div class="tabs">
+      <button class="on" id="tab1btn">📤 发送到手机</button>
+      <button id="tab2btn">📥 已接收的文件</button>
+    </div>
+
+    <div class="tabpane on" id="tab1">
       <div class="toolbar">
         <button class="btn-blue" id="pick">选择文件…</button>
         <button class="btn-ghost" id="unshareall" style="display:none">全部取消分享</button>
       </div>
       <div id="shared" class="filelist"></div>
-      <div class="meta">可一次选多个文件（弹出的是系统原生的选择窗口）。分享后，手机打开页面在
-        「电脑发来的文件」里点一下即可下载；不需要时点「取消分享」。</div>
+      <div class="meta">可一次选多个文件（弹出的是系统原生的选择窗口）。手机扫「连接码」打开页面后，在「电脑发来的文件」里点一下即可下载；不需要时点「取消分享」。</div>
     </div>
 
-    <!-- 接收的文件 -->
-    <div class="card full" data-page-node-id="awwK9d5XWbYekBbpKqM4gB">
-      <h2 data-page-node-id="jOiiv0Uqi0DSnNiKFkGDuM"><span class="dot" data-page-node-id="pu3sDHigH1vdLGjXkvs8D8"></span>已接收的文件</h2>
-      <div class="toolbar" data-page-node-id="TLWcN6m2QuIN5RMyZ2KkaJ">
-        <button class="btn-ghost" id="refresh" data-page-node-id="ycyppotTU7F6kRW7ZtBE56">刷新</button>
-        <button class="btn-blue" id="openfolder" data-page-node-id="2Lr9dr7BcSIwygE873EnT0">打开接收目录</button>
+    <div class="tabpane" id="tab2">
+      <div class="toolbar">
+        <button class="btn-ghost" id="refresh">刷新</button>
+        <button class="btn-blue" id="openfolder">打开接收目录</button>
       </div>
-      <div id="files" class="filelist" data-page-node-id="mW9Mge3qUeK9IzKwdbKu1U"></div>
-    </div>
-
-    <!-- 版本与更新 -->
-    <div class="card full" id="update">
-      <h2><span class="dot" style="background:var(--orange)"></span>版本与更新</h2>
-      <div class="verline">
-        <span class="vnum" id="verNum">…</span>
-        <span class="vmeta" id="verMeta"></span>
-      </div>
-      <div class="vercell">
-        <div>构建号<b id="verBuild">…</b></div>
-        <div>发行日期<b id="verDate">…</b></div>
-        <div>发布通道<b id="verChannel">…</b></div>
-        <div>更新源<b id="verFeed" style="font-weight:500">…</b></div>
-      </div>
-
-      <div class="toolbar" style="margin-top:14px">
-        <button class="btn-blue" id="checkupd">检查更新</button>
-        <button class="btn-ghost" id="opensettings">更新设置</button>
-        <button class="btn-ghost" id="openpkg" style="display:none">打开安装包</button>
-      </div>
-
-      <div class="updbox" id="updbox">
-        <div class="t" id="updtitle"></div>
-        <div id="upddesc"></div>
-        <ul id="updnotes"></ul>
-        <div class="prog" id="updprog" style="display:none"><i id="updprogi"></i></div>
-        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
-          <button class="btn-blue" id="dlbtn" style="display:none">下载更新</button>
-          <button class="btn-orange" id="installbtn" style="display:none">立即升级</button>
-        </div>
-      </div>
-      <div class="meta">升级会替换本机应用并自动重启；升级前的版本会备份到废纸篓，可随时回退。</div>
+      <div id="files" class="filelist"></div>
     </div>
   </div>
 
-  <footer id="footer" data-page-node-id="9cQpCBrtQSNHs88W5UqfVq">易码互传 · © 易码通科技</footer>
+  <!-- ═══ 模块④：版本与更新（精简条） ═══ -->
+  <div class="card vercard" style="margin-top:16px">
+    <div class="verbar">
+      <span class="dot"></span>
+      <span class="vnum" id="verNum">…</span>
+      <span class="vmeta" id="verMeta"></span>
+      <span class="vmeta">构建 <b id="verBuild">…</b> · 发行 <b id="verDate">…</b> · 通道 <b id="verChannel">…</b></span>
+      <span class="sp"></span>
+      <button class="btn-blue" id="checkupd">检查更新</button>
+      <button class="btn-ghost" id="opensettings">更新设置</button>
+      <button class="btn-ghost" id="openpkg" style="display:none">打开安装包</button>
+    </div>
+    <div class="vfeed">更新源：<b id="verFeed">…</b> · 升级会替换本机应用并自动重启；升级前的版本会备份到废纸篓，可随时回退。</div>
+
+    <div class="updbox" id="updbox">
+      <div class="t" id="updtitle"></div>
+      <div id="upddesc"></div>
+      <ul id="updnotes"></ul>
+      <div class="prog" id="updprog" style="display:none"><i id="updprogi"></i></div>
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn-blue" id="dlbtn" style="display:none">下载更新</button>
+        <button class="btn-orange" id="installbtn" style="display:none">立即升级</button>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer">易码互传 · © 易码通科技</footer>
 </div>
-<input type="file" id="fileinput" multiple style="display:none" data-page-node-id="yToMAND4jlhTG8ENEjHC7A">
+
+<input type="file" id="fileinput" multiple style="display:none">
+
+<!-- 连接码弹窗（原「手机连接」大卡片收纳于此） -->
+<div class="modal" id="qrmodal">
+  <div class="mbox">
+    <h3>本机连接码</h3>
+    <div class="msub">一码两用 · 局域网内有效</div>
+    <div class="qr"><img id="myqr" src="/connect-qr.png" alt="连接码" title="点击放大"></div>
+    <div class="urlbox"><code id="connecturl">…</code><button class="btn-blue" id="qrcopy">复制</button></div>
+    <div class="muse">
+      <div><b>📱 手机扫码</b>直接打开网页版，上传 / 下载文件、发送文字到电脑</div>
+      <div><b>💻 电脑扫码</b>对方控制台点「扫码连接」扫此码，自动添加本机为设备</div>
+    </div>
+    <button class="btn-ghost mclose" id="qrclose">关闭</button>
+  </div>
+</div>
+
+<!-- 扫码连接弹窗（摄像头） -->
 <div id="scanmodal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:14px;padding:18px;max-width:460px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.25)">
-    <h2 style="margin:0 0 10px;font-size:18px"><span class="dot" style="background:var(--blue,#3b82f6)"></span>扫码连接</h2>
+  <div class="mbox2">
+    <h2><span class="dot"></span>扫码连接</h2>
     <div id="scanerr" style="display:none;color:#c0392b;font-size:13px;margin:0 0 10px;line-height:1.6"></div>
     <video id="scanvideo" playsinline muted
            style="width:100%;border-radius:10px;background:#000;aspect-ratio:4/3;object-fit:cover"></video>
-    <div class="meta" style="margin-top:10px">把摄像头对准对方电脑屏幕上的「本机连接码」，识别后自动添加设备。</div>
+    <div class="meta" style="margin-top:10px">把摄像头对准对方电脑屏幕上的「连接码」，识别后自动添加设备。</div>
     <div class="toolbar" style="margin-top:12px;justify-content:flex-end">
       <button class="btn-ghost" id="scanclose">关闭</button>
     </div>
   </div>
 </div>
-<div class="toast" id="toast" data-page-node-id="zdUGbHuvhZjXOgIhjPbh2p"></div>
+
+<div class="toast" id="toast"></div>
 
 <script>
 /* jsQR 1.4.0（MIT License, github.com/cozmo/jsQR）— 本地内联，扫码解析用 */
@@ -254,7 +323,6 @@ function esc(s){ const d=document.createElement('div'); d.textContent=s; return 
 async function loadStatus(){
   try{
     const st = await (await fetch('/api/local/status')).json();
-    $('url').textContent = st.url;
     LOCAL_PORT = st.port || 8000;
     document.title = '易码互传 · ' + st.port + ' 端口';
     $('badge').textContent = '运行中 · ' + (st.version || '');
@@ -353,6 +421,7 @@ $('openpkg').onclick = async ()=>{
   toast('已在访达中显示安装包');
 };
 $('opensettings').onclick = ()=>{ location.href = '/settings'; };
+$('hsettings').onclick   = ()=>{ location.href = '/settings'; };
 
 async function loadFiles(){
   try{
@@ -466,6 +535,17 @@ $('unshareall').onclick = async ()=>{
   }catch(e){ toast('操作失败：'+e); }
 };
 
+// ---- 文件互传双标签 ----
+function swtab(tab){
+  const on = (tab === 1);
+  $('tab1btn').classList.toggle('on', on);
+  $('tab2btn').classList.toggle('on', !on);
+  $('tab1').classList.toggle('on', on);
+  $('tab2').classList.toggle('on', !on);
+}
+$('tab1btn').onclick = ()=>swtab(1);
+$('tab2btn').onclick = ()=>swtab(2);
+
 async function loadPeers(){
   try{
     const peers = await (await fetch('/api/peers')).json();
@@ -480,8 +560,19 @@ async function loadPeers(){
           '<span class="dot"></span>'+
           '<span class="pname">'+esc(p.name)+'</span>'+
           '<span class="pip">'+esc(p.ip)+':'+p.port+(p.via==='http'?' · 扫描':'')+'</span>'+
-          '<button class="btn-orange">发文件</button>';
-        row.querySelector('button').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
+          '<span class="acts">'+
+          '<button class="btn-orange" data-act="file">发文件</button>'+
+          '<button class="btn-ghost" data-act="text">发文字</button></span>';
+        row.querySelector('[data-act=file]').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
+        row.querySelector('[data-act=text]').onclick = ()=>{
+          // 选中「互传文字」的对应设备并聚焦输入框
+          const sel = $('textpeer');
+          const want = p.ip+'|'+p.port;
+          if([...sel.options].some(o=>o.value===want)) sel.value = want;
+          $('textcard').scrollIntoView({behavior:'smooth', block:'center'});
+          setTimeout(()=>{ $('textinput').focus(); }, 350);
+          toast('已选择 '+p.name+'，输入文字即可发送');
+        };
         box.appendChild(row);
       }
     }
@@ -489,7 +580,7 @@ async function loadPeers(){
     const sel = $('textpeer');
     if(sel){
       const cur = sel.value;
-      sel.innerHTML = '<option value="">— 选择要发送的设备 —</option>' +
+      sel.innerHTML = '<option value="">— 选择设备 —</option>' +
         peers.map(p=>'<option value="'+esc(p.ip)+'|'+p.port+'">'+esc(p.name)+'（'+esc(p.ip)+':'+p.port+'）</option>').join('');
       if([...sel.options].some(o=>o.value===cur)) sel.value = cur;
     }
@@ -532,7 +623,7 @@ $('fileinput').addEventListener('change', async e=>{
 
 $('refresh').onclick = ()=>{ loadFiles(); loadPeers(); };
 
-// ---- 互传文字 ----
+// ---- 互传文字（对话气泡） ----
 function fmtTime(ts){
   const d = new Date(ts*1000), p = n => (n<10?'0':'')+n;
   return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
@@ -546,19 +637,17 @@ async function loadText(){
     if(!msgs.length){ box.innerHTML = '<div class="empty">还没有消息 —— 选好设备、输入文字即可互发</div>'; lastTextTs = 0; return; }
     box.innerHTML = '';
     for(const m of msgs){
-      const row = document.createElement('div'); row.className='peer';
-      row.style.cursor = 'pointer'; row.title = '点击复制内容';
-      row.innerHTML =
-        '<span class="dot" style="background:'+(m.dir==='recv'?'var(--green)':'var(--orange)')+'"></span>'+
-        '<span class="pname" style="white-space:nowrap">'+(m.dir==='recv'?'来自':'发至')+' '+esc(m.device)+'</span>'+
-        '<span class="pip" style="flex:1;white-space:pre-wrap;word-break:break-all;text-align:left">'+
-          esc(m.text.length>200 ? m.text.slice(0,200)+'…' : m.text)+'</span>'+
-        '<span class="pip" style="white-space:nowrap">'+fmtTime(m.ts)+'</span>';
-      row.onclick = async ()=>{
+      const b = document.createElement('div');
+      b.className = 'bubble ' + (m.dir==='recv'?'b-recv':'b-send');
+      b.title = '点击复制内容';
+      b.innerHTML =
+        '<div class="who">'+(m.dir==='recv'?'来自 ':'发至 ')+esc(m.device)+' · '+fmtTime(m.ts)+'</div>'+
+        '<div class="txt">'+esc(m.text)+'</div>';
+      b.onclick = async ()=>{
         try{ await navigator.clipboard.writeText(m.text); toast('已复制消息内容'); }
         catch(e){ toast('复制失败，请手动选择复制'); }
       };
-      box.appendChild(row);
+      box.appendChild(b);
     }
     box.scrollTop = box.scrollHeight;
     const newest = msgs[msgs.length-1].ts;
@@ -571,7 +660,7 @@ async function loadText(){
 
 $('textsend').onclick = async ()=>{
   const sel = $('textpeer');
-  if(!sel.value){ toast('请先在上方选择要发送的设备'); return; }
+  if(!sel.value){ toast('请先选择要发送的设备'); return; }
   const [ip, port] = sel.value.split('|');
   const p = textPeerList.find(x=>x.ip===ip && String(x.port)===String(port));
   const name = p ? p.name : ip;
@@ -603,6 +692,34 @@ $('textpush').onclick = async ()=>{
     if(r.ok){ toast('已推送到手机 —— 手机页面会显示并可直接复制'); }
     else toast('推送失败：'+((r&&r.error)||'未知原因'));
   }catch(e){ toast('推送失败：'+e); }
+};
+
+// ---- 连接码弹窗（原「手机连接」卡片收纳于此） ----
+async function openQrModal(){
+  $('qrmodal').classList.add('show');
+  try{
+    const info = await (await fetch('/api/connect-info')).json();
+    $('connecturl').textContent = info.code || '';
+  }catch(e){}
+}
+$('qrbtn').onclick    = openQrModal;
+$('showmyqr').onclick = openQrModal;
+$('qrclose').onclick  = ()=> $('qrmodal').classList.remove('show');
+$('qrmodal').addEventListener('click', e=>{
+  if(e.target.id === 'qrmodal') e.target.classList.remove('show');
+});
+$('myqr').onclick = ()=>{ window.open('/connect-qr.png', '_blank'); };
+$('qrcopy').onclick = async ()=>{
+  const text = $('connecturl').textContent;
+  if(!text || text === '…'){ toast('连接码尚未加载，请稍候再试'); return; }
+  try{
+    await fetch('/api/local/copy',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text})});
+    toast('已复制连接码地址');
+  }catch(e){
+    try{ await navigator.clipboard.writeText(text); toast('已复制连接码地址'); }
+    catch(e2){ toast('复制失败，请手动选择复制'); }
+  }
 };
 
 // ---- 扫码连接 ----
@@ -712,7 +829,6 @@ async function startScan(){
 
 $('scanbtn').onclick = startScan;
 $('scanclose').onclick = stopScan;
-$('myqr').onclick = ()=>{ window.open('/connect-qr.png', '_blank'); };
 
 $('scanlan').onclick = async ()=>{
   $('peers').innerHTML = '<div class="empty">正在扫描局域网…（约 3 秒）</div>';
@@ -733,16 +849,6 @@ $('addpeer').onclick = async ()=>{
 };
 $('openfolder').onclick = async ()=>{
   await fetch('/api/local/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-};
-$('copy').onclick = async ()=>{
-  try{
-    await fetch('/api/local/copy',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:$('url').textContent})});
-    toast('已复制连接地址');
-  }catch(e){
-    try{ await navigator.clipboard.writeText($('url').textContent); toast('已复制连接地址'); }
-    catch(e2){ toast('复制失败，请手动选择复制'); }
-  }
 };
 
 loadStatus(); loadFiles(); loadPeers(); loadVersion(); pollUpdate(); loadShared(); loadText();
