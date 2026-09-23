@@ -61,8 +61,8 @@ if getattr(sys, "frozen", False):
 # ---- 品牌与版本（与 Mac 版保持同一口径）----
 APP_NAME = "易码互传"
 APP_COMPANY = "易码通科技"
-APP_VERSION_NUM = "1.8.0"
-APP_BUILD = "20260922"
+APP_VERSION_NUM = "1.8.1"
+APP_BUILD = "20260923"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -897,11 +897,13 @@ def save_qr_image(url):
 
 
 def connect_code():
-    """电脑连线码内容：yima-connect://ip:port?name=主机名。
+    """连线码内容：http://ip:port/connect?name=主机名。
 
-    对方电脑控制台「扫码连接」对准本机屏幕上的二维码即可添加本机。
+    一码两用：
+    - 手机扫码 → 浏览器打开 /connect 欢迎页，一键进入传文件页面；
+    - 电脑扫码（控制台「扫码连接」）→ 识别出 ip:port 自动添加为设备。
     """
-    return "yima-connect://%s:%d?name=%s" % (
+    return "http://%s:%d/connect?name=%s" % (
         get_lan_ip(), PORT, urllib.parse.quote(socket.gethostname()))
 
 
@@ -1217,6 +1219,38 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/connect-info":
             self._json(200, {"ip": get_lan_ip(), "port": PORT,
                              "name": socket.gethostname(), "code": connect_code()})
+            return
+
+        if path == "/connect":
+            # 手机扫「连线码」后打开的欢迎页：一键进入传文件页面
+            name = socket.gethostname()
+            page = ("""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>已连接 - 易码互传</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+font-family:-apple-system,"PingFang SC",sans-serif;background:#f3f4f6}
+.card{background:#fff;border-radius:16px;padding:36px 28px;max-width:340px;text-align:center;
+box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.ok{width:64px;height:64px;border-radius:50%%;background:#22c55e;color:#fff;font-size:34px;
+line-height:64px;margin:0 auto 16px}
+h1{font-size:20px;margin:0 0 8px;color:#111}
+p{color:#6b7280;font-size:14px;margin:0 0 24px}
+a.btn{display:block;background:#f97316;color:#fff;text-decoration:none;border-radius:10px;
+padding:14px;font-size:16px;font-weight:600}
+a.btn:active{opacity:.85}
+</style></head><body><div class="card">
+<div class="ok">&#10003;</div>
+<h1>已找到「%s」</h1>
+<p>手机与电脑已在同一局域网，点击下方按钮即可互传文件。</p>
+<a class="btn" href="/">开始传文件</a>
+</div></body></html>""" % name)
+            data = page.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
             return
 
         if path.startswith("/download/"):

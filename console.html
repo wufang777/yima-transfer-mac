@@ -127,7 +127,7 @@
              style="width:96px;height:96px;border-radius:10px;border:1px solid var(--line,#ddd);background:#fff;cursor:zoom-in"
              title="点击放大">
         <div style="flex:1;min-width:210px">
-          <div class="meta" style="margin:0 0 8px">这是<b>本机连接码</b>：在对方电脑的控制台点「扫码连接」，摄像头对准此码即可添加本机（点击可放大，方便隔屏扫描）。</div>
+          <div class="meta" style="margin:0 0 8px">这是<b>本机连接码</b>：<b>手机扫码</b>直接打开传文件页面；<b>电脑扫码</b>（对方控制台点「扫码连接」）自动添加本机为设备。点击可放大，方便隔屏扫描。</div>
           <button class="btn-blue" id="scanbtn">扫码连接对方</button>
         </div>
       </div>
@@ -598,7 +598,10 @@ $('textinput').addEventListener('keydown', e=>{
 let scanStream = null, scanRAF = null, scanDetector = null;
 
 function parseConnectCode(text){
-  const m = /^yima-connect:\/\/([^:\/\s]+):(\d+)/.exec(text || '');
+  // 兼容两种连线码：旧版 yima-connect://ip:port?name=… 与新版 http://ip:port/connect?name=…
+  text = (text || '').trim();
+  let m = /^yima-connect:\/\/([^:\/\s]+):(\d+)/.exec(text);
+  if(!m) m = /^https?:\/\/([^:\/\s]+):(\d+)\/connect/.exec(text);
   if(!m) return null;
   let name = '';
   const q = text.indexOf('?');
