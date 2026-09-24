@@ -61,8 +61,8 @@ if getattr(sys, "frozen", False):
 # ---- 品牌与版本（与 Mac 版保持同一口径）----
 APP_NAME = "易码互传"
 APP_COMPANY = "易码通科技"
-APP_VERSION_NUM = "1.11.0"
-APP_BUILD = "20260923"
+APP_VERSION_NUM = "1.12.0"
+APP_BUILD = "20260924"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
