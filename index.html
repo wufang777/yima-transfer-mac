@@ -159,6 +159,7 @@
           点击选择文件，或把文件拖到这里
           <input type="file" id="file" multiple hidden>
         </div>
+        <div id="pendingbar" style="display:none; margin-top:10px; background:rgba(255,204,0,.14); border:1px solid rgba(255,204,0,.35); color:#7a5b00; border-radius:10px; padding:9px 12px; font-size:12.5px;"></div>
         <div id="uploads"></div>
       </div>
 
@@ -328,20 +329,125 @@ drop.addEventListener('drop', e => { for (const f of e.dataTransfer.files) uploa
 
 function fmtSize(n){ if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(1)+' KB'; if(n<1073741824) return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
 
-function uploadFile(file){
+// ---- 分片上传 + 断点续传（v1.13.0）----
+// 说明：浏览器页面关闭后 JS 必然停止（http 下无法用 Service Worker 后台续传），
+// 因此方案 = 关闭前 beforeunload 提醒 + 中断后重选同一文件自动从断点续传。
+const CHUNK_SIZE = 2 * 1024 * 1024;
+let activeUploads = 0;
+window.addEventListener('beforeunload', e => {
+  if(activeUploads > 0){ e.preventDefault(); e.returnValue = ''; }
+});
+
+// 未完成传输记忆：重开页面后提示「重选同一文件可续传」
+const PENDING_KEY = 'yima_pending_upload';
+function savePending(name, size){
+  try{ localStorage.setItem(PENDING_KEY, JSON.stringify({name:name, size:size, ts:Date.now()})); }catch(e){}
+}
+function clearPending(){
+  try{ localStorage.removeItem(PENDING_KEY); }catch(e){}
+  const bar = document.getElementById('pendingbar');
+  if(bar) bar.style.display = 'none';
+}
+function showPendingHint(){
+  try{
+    const raw = localStorage.getItem(PENDING_KEY);
+    if(!raw) return;
+    const p = JSON.parse(raw);
+    if(!p || !p.name || Date.now() - (p.ts||0) > 3*86400000){ clearPending(); return; }
+    const bar = document.getElementById('pendingbar');
+    bar.innerHTML = '⏸ 上次《<b></b>》没有传完（' + fmtSize(p.size) + '）。重新选择同一个文件，会从断点继续传，不用重头再来。';
+    bar.querySelector('b').textContent = p.name;
+    bar.style.display = 'block';
+  }catch(e){}
+}
+showPendingHint();
+
+async function postJSON(url, obj){
+  const r = await fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(obj)
+  });
+  return r.json();
+}
+
+// 发送一个分片；409 时服务端返回权威偏移，直接对齐
+async function sendChunk(id, offset, blob){
+  const r = await fetch('/upload/chunk?id=' + id + '&offset=' + offset, {
+    method:'POST', headers:{'Content-Type':'application/octet-stream'}, body: blob
+  });
+  if(r.status === 409){
+    const j = await r.json().catch(() => ({}));
+    if(typeof j.offset === 'number') return j.offset;
+  }
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if(!j.ok) throw new Error(j.error || '分片上传失败');
+  return j.offset;
+}
+
+async function uploadFile(file){
   const item = document.createElement('div');
   item.className = 'upitem';
-  item.innerHTML = '<span>'+file.name+'</span> <span class="fsize"></span><div class="progress"><i></i></div>';
+  item.innerHTML = '<span></span> <span class="fsize"></span><div class="progress"><i></i></div>';
+  item.querySelector('span').textContent = file.name;
   uploads.appendChild(item);
   const bar = item.querySelector('i');
   const size = item.querySelector('.fsize');
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/upload?name=' + encodeURIComponent(file.name));
-  xhr.upload.onprogress = e => { if(e.lengthComputable){ const p = e.loaded/e.total*100; bar.style.width=p+'%'; size.textContent = fmtSize(e.loaded)+' / '+fmtSize(e.total); } };
-  xhr.onload = () => { try { const r = JSON.parse(xhr.responseText); if(r.ok){ bar.style.width='100%'; size.textContent='完成 '+fmtSize(r.size); refresh(); } else { size.textContent='失败: '+(r.error||'未知'); } } catch(_){ size.textContent='失败: 响应异常'; } };
-  xhr.onerror = () => { size.textContent='网络错误'; };
-  xhr.send(file);
+  activeUploads++;
+  savePending(file.name, file.size);
+  try {
+    // 1) init：同名同大小若有未完成的断点，直接拿到已传偏移
+    const init = await postJSON('/upload/init', {name: file.name, size: file.size});
+    if(!init.ok) throw new Error(init.error || '初始化失败');
+    if(init.done){
+      bar.style.width = '100%';
+      size.textContent = '完成（电脑上已有同文件） ' + fmtSize(file.size);
+      clearPending();
+      refresh();
+      return;
+    }
+    let offset = init.offset || 0;
+    if(offset > 0){
+      bar.style.width = (offset / file.size * 100) + '%';
+      size.textContent = '断点续传 ' + fmtSize(offset) + ' / ' + fmtSize(file.size);
+    }
+
+    // 2) 逐片上传：每片最多重试 4 次，重试前先向服务端对齐真实进度
+    while(offset < file.size){
+      let ok = false, lastErr = null;
+      for(let attempt = 0; attempt < 4 && !ok; attempt++){
+        const end = Math.min(offset + CHUNK_SIZE, file.size);
+        try{
+          offset = await sendChunk(init.id, offset, file.slice(offset, end));
+          ok = true;
+        }catch(e){
+          lastErr = e;
+          size.textContent = '网络波动，正在重试… ' + fmtSize(offset) + ' / ' + fmtSize(file.size);
+          await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+          try{
+            const st = await postJSON('/upload/init', {name: file.name, size: file.size});
+            if(st.ok) offset = st.offset || 0;
+          }catch(_){}
+        }
+      }
+      if(!ok) throw (lastErr || new Error('分片上传失败'));
+      bar.style.width = (offset / file.size * 100) + '%';
+      size.textContent = fmtSize(offset) + ' / ' + fmtSize(file.size);
+    }
+
+    // 3) complete：服务端校验大小后落盘
+    const fin = await postJSON('/upload/complete', {id: init.id});
+    if(!fin.ok) throw new Error(fin.error || '完成校验失败');
+    bar.style.width = '100%';
+    size.textContent = '完成 ' + fmtSize(fin.size);
+    clearPending();
+    refresh();
+  } catch(e) {
+    size.textContent = '中断：' + e.message + '（重新选择同一文件可从断点继续）';
+  } finally {
+    activeUploads--;
+  }
 }
 
 // ---- 更多功能：电脑上的文件（折叠，展开时才加载/轮询） ----

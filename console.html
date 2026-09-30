@@ -303,6 +303,12 @@
 </script>
 <script>
 const $ = id => document.getElementById(id);
+
+// ---- 传输中防误关（v1.13.0）：有文件正在发送时，关闭/刷新页面前弹确认 ----
+let activeSends = 0;
+window.addEventListener('beforeunload', e => {
+  if(activeSends > 0){ e.preventDefault(); e.returnValue = ''; }
+});
 let sendTarget = null;      // {ip, port, name}
 let sendFiles  = [];
 let textPeerList = [];      // 「互传文字」用的设备列表（loadPeers 里同步）
@@ -592,6 +598,8 @@ $('fileinput').addEventListener('change', async e=>{
   if(!sendTarget || !files.length) return;
   const p = sendTarget;
   let ok=0, fail=0;
+  activeSends++;
+  try{
   for(const f of files){
     toast('正在发送「'+f.name+'」到 '+p.name+'…');
     try{
@@ -619,6 +627,7 @@ $('fileinput').addEventListener('change', async e=>{
     }
   }
   if(fail && !ok) toast('全部 '+fail+' 个文件发送失败，可点「重新扫描局域网」后再试');
+  }finally{ activeSends--; }
 });
 
 $('refresh').onclick = ()=>{ loadFiles(); loadPeers(); };

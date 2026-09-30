@@ -28,6 +28,8 @@ import ctypes
 import subprocess
 import threading
 import time
+import hashlib
+import shutil
 import mimetypes
 import urllib.parse
 import urllib.request
@@ -61,8 +63,8 @@ if getattr(sys, "frozen", False):
 # ---- 品牌与版本（与 Mac 版保持同一口径）----
 APP_NAME = "易码互传"
 APP_COMPANY = "易码通科技"
-APP_VERSION_NUM = "1.12.0"
-APP_BUILD = "20260924"
+APP_VERSION_NUM = "1.13.0"
+APP_BUILD = "20260930"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -135,6 +137,75 @@ try:
     RECEIVE_DIR.mkdir(parents=True, exist_ok=True)
 except Exception:
     pass
+
+
+# ---- 分片断点续传（v1.13.0，与 Mac 端协议一致）----
+# POST /upload/init（登记，返回已传偏移）→ POST /upload/chunk?id=&offset=（幂等追加）
+# → POST /upload/complete（校验大小落盘）；未完成分片存 RECEIVE_DIR/.parts/
+def _parts_dir():
+    return RECEIVE_DIR / ".parts"
+
+
+def _upload_id(name, size):
+    return hashlib.sha1(("%s|%d" % (name, size)).encode("utf-8")).hexdigest()[:16]
+
+
+def _part_file(uid):
+    return _parts_dir() / (uid + ".part")
+
+
+def _part_meta_file(uid):
+    return _parts_dir() / (uid + ".json")
+
+
+def _read_part_meta(uid):
+    try:
+        meta = json.loads(_part_meta_file(uid).read_text(encoding="utf-8"))
+        if isinstance(meta, dict) and meta.get("name") and meta.get("size"):
+            return meta
+    except Exception:
+        pass
+    return None
+
+
+def _write_part_meta(uid, name, size):
+    try:
+        _parts_dir().mkdir(parents=True, exist_ok=True)
+        _part_meta_file(uid).write_text(json.dumps(
+            {"name": name, "size": size, "updated": time.time()},
+            ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _remove_part_meta(uid):
+    try:
+        _part_meta_file(uid).unlink()
+    except OSError:
+        pass
+
+
+def _part_offset(uid):
+    if not _read_part_meta(uid):
+        return 0
+    part = _part_file(uid)
+    try:
+        return part.stat().st_size if part.exists() else 0
+    except OSError:
+        return 0
+
+
+def _sweep_stale_parts(max_age=3 * 86400):
+    try:
+        now = time.time()
+        for f in _parts_dir().glob("*"):
+            try:
+                if now - f.stat().st_mtime > max_age:
+                    f.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 CONSOLE = BASE_DIR / "console.html"
 INDEX = BASE_DIR / "index.html"
@@ -1066,6 +1137,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(SETTINGS)
             return
 
+        if path == "/upload/status":
+            # 断点查询：页面重开后据 文件名+大小 找回已传偏移
+            q = urllib.parse.parse_qs(parsed.query)
+            name = os.path.basename(urllib.parse.unquote(q.get("name", [""])[0] or "")) or "upload.bin"
+            for ch in '<>:"|?*':
+                name = name.replace(ch, "_")
+            try:
+                size = int(q.get("size", ["0"])[0] or 0)
+            except Exception:
+                size = 0
+            uid = _upload_id(name, size)
+            dest = RECEIVE_DIR / name
+            done = False
+            try:
+                done = size > 0 and dest.is_file() and dest.stat().st_size == size
+            except OSError:
+                pass
+            self._json(200, {"ok": True, "id": uid, "name": name,
+                             "offset": size if done else _part_offset(uid),
+                             "done": done})
+            return
+
         if path == "/files":
             files = []
             try:
@@ -1311,6 +1404,18 @@ a.btn:active{opacity:.85}
 
         if p == "/upload":
             self._handle_upload(parsed)
+            return
+
+        if p == "/upload/init":
+            self._handle_upload_init()
+            return
+
+        if p == "/upload/chunk":
+            self._handle_upload_chunk(parsed)
+            return
+
+        if p == "/upload/complete":
+            self._handle_upload_complete()
             return
 
         if p == "/api/peers/send":
@@ -1602,6 +1707,138 @@ a.btn:active{opacity:.85}
 
         self._json(200, {"ok": True, "name": name, "size": written})
         _on_file_received(name, written)
+
+    # ---- 分片断点续传（v1.13.0，与 Mac 端协议一致）----
+    def _drain_body(self):
+        try:
+            remaining = int(self.headers.get("Content-Length", 0) or 0)
+        except Exception:
+            remaining = 0
+        while remaining > 0:
+            buf = self.rfile.read(min(65536, remaining))
+            if not buf:
+                break
+            remaining -= len(buf)
+
+    @staticmethod
+    def _sanitize_upload_name(raw):
+        name = os.path.basename(urllib.parse.unquote(str(raw or ""))) or "upload.bin"
+        # Windows 文件名非法字符兜底（Mac / 手机传来的名字可能带 : 等）
+        for ch in '<>:"|?*':
+            name = name.replace(ch, "_")
+        return name
+
+    def _handle_upload_init(self):
+        body = self._read_json_body() or {}
+        name = self._sanitize_upload_name(body.get("name"))
+        try:
+            size = int(body.get("size", 0) or 0)
+        except Exception:
+            size = 0
+        if size <= 0:
+            self._json(400, {"ok": False, "error": "文件大小无效"})
+            return
+        uid = _upload_id(name, size)
+        dest = RECEIVE_DIR / name
+        try:
+            if dest.is_file() and dest.stat().st_size == size:
+                self._json(200, {"ok": True, "id": uid, "offset": size,
+                                 "done": True, "name": name})
+                return
+        except OSError:
+            pass
+        offset = _part_offset(uid)
+        _write_part_meta(uid, name, size)
+        _sweep_stale_parts()
+        self._json(200, {"ok": True, "id": uid, "offset": offset,
+                         "resumed": offset > 0, "name": name})
+
+    def _handle_upload_chunk(self, parsed):
+        q = urllib.parse.parse_qs(parsed.query)
+        uid = "".join(c for c in (q.get("id", [""])[0] or "") if c in "0123456789abcdef")[:16]
+        try:
+            offset = int(q.get("offset", ["0"])[0] or 0)
+        except Exception:
+            offset = -1
+        meta = _read_part_meta(uid)
+        if not meta:
+            self._drain_body()
+            self._json(404, {"ok": False, "error": "上传会话不存在，请重新发起"})
+            return
+        part = _part_file(uid)
+        try:
+            cur = part.stat().st_size if part.exists() else 0
+        except OSError:
+            cur = 0
+        if offset < 0:
+            self._drain_body()
+            self._json(400, {"ok": False, "error": "offset 无效"})
+            return
+        if offset < cur:
+            # 这段已收到（重试/重复提交），幂等跳过
+            self._drain_body()
+            self._json(200, {"ok": True, "offset": cur, "skipped": True})
+            return
+        if offset > cur:
+            self._drain_body()
+            self._json(409, {"ok": False, "error": "offset 不连续", "offset": cur})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except Exception:
+            length = 0
+        if length <= 0:
+            self._json(400, {"ok": False, "error": "空分片"})
+            return
+        written = 0
+        try:
+            _parts_dir().mkdir(parents=True, exist_ok=True)
+            with open(part, "ab") as out:
+                remaining = length
+                while remaining > 0:
+                    buf = self.rfile.read(min(262144, remaining))
+                    if not buf:
+                        break
+                    out.write(buf)
+                    remaining -= len(buf)
+                    written += len(buf)
+        except OSError as e:
+            self._json(500, {"ok": False, "error": "写入失败: %s" % e})
+            return
+        _write_part_meta(uid, meta["name"], meta["size"])
+        self._json(200, {"ok": True, "offset": cur + written})
+
+    def _handle_upload_complete(self):
+        body = self._read_json_body() or {}
+        uid = "".join(c for c in str(body.get("id") or "") if c in "0123456789abcdef")[:16]
+        meta = _read_part_meta(uid)
+        if not meta:
+            self._json(404, {"ok": False, "error": "上传会话不存在"})
+            return
+        part = _part_file(uid)
+        try:
+            cur = part.stat().st_size if part.exists() else 0
+        except OSError:
+            cur = 0
+        if cur != int(meta["size"]):
+            self._json(409, {"ok": False, "error": "数据不完整", "offset": cur})
+            return
+        name = meta["name"]
+        dest = RECEIVE_DIR / name
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                dest.unlink()
+            try:
+                part.rename(dest)
+            except OSError:
+                shutil.move(str(part), str(dest))
+        except OSError as e:
+            self._json(500, {"ok": False, "error": "落盘失败: %s" % e})
+            return
+        _remove_part_meta(uid)
+        self._json(200, {"ok": True, "name": name, "size": cur})
+        _on_file_received(name, cur)
 
     # ---- PC 分享文件给手机 ----
     def _handle_share(self):
