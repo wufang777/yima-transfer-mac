@@ -208,6 +208,7 @@
     <div class="tabs">
       <button class="on" id="tab1btn">📤 发送到手机</button>
       <button id="tab2btn">📥 已接收的文件</button>
+      <button id="tab3btn">🚀 后台发送 <span id="jobcount" style="opacity:.7"></span></button>
     </div>
 
     <div class="tabpane on" id="tab1">
@@ -225,6 +226,14 @@
         <button class="btn-blue" id="openfolder">打开接收目录</button>
       </div>
       <div id="files" class="filelist"></div>
+    </div>
+
+    <div class="tabpane" id="tab3">
+      <div class="toolbar">
+        <button class="btn-ghost" id="refreshjobs">刷新</button>
+      </div>
+      <div id="joblist" class="filelist"></div>
+      <div class="meta">发给其它电脑的文件先在本机缓冲，再由后台线程送达：<b>关掉这个页面也不会中断</b>；中途断网/对方关机，点「重试」会从断点继续，不用重头传。</div>
     </div>
   </div>
 
@@ -541,16 +550,21 @@ $('unshareall').onclick = async ()=>{
   }catch(e){ toast('操作失败：'+e); }
 };
 
-// ---- 文件互传双标签 ----
+// ---- 文件互传三标签 ----
 function swtab(tab){
   const on = (tab === 1);
-  $('tab1btn').classList.toggle('on', on);
-  $('tab2btn').classList.toggle('on', !on);
-  $('tab1').classList.toggle('on', on);
-  $('tab2').classList.toggle('on', !on);
+  $('tab1btn').classList.toggle('on', tab === 1);
+  $('tab2btn').classList.toggle('on', tab === 2);
+  $('tab3btn').classList.toggle('on', tab === 3);
+  $('tab1').classList.toggle('on', tab === 1);
+  $('tab2').classList.toggle('on', tab === 2);
+  $('tab3').classList.toggle('on', tab === 3);
+  if(tab === 3) loadJobs();
 }
 $('tab1btn').onclick = ()=>swtab(1);
 $('tab2btn').onclick = ()=>swtab(2);
+$('tab3btn').onclick = ()=>swtab(3);
+$('refreshjobs').onclick = ()=>loadJobs();
 
 async function loadPeers(){
   try{
@@ -593,6 +607,52 @@ async function loadPeers(){
   }catch(e){}
 }
 
+async function postJSON(url, obj){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify(obj)});
+  return r.json();
+}
+
+// ---- 后台发送任务列表 ----
+async function loadJobs(){
+  try{
+    const r = await (await fetch('/api/peers/jobs')).json();
+    const jobs = (r && r.jobs) || [];
+    const live = jobs.filter(j => j.state !== 'done').length;
+    $('jobcount').textContent = live ? '('+live+')' : '';
+    const box = $('joblist');
+    if(!jobs.length){ box.innerHTML = '<div class="empty">暂无后台发送任务</div>'; return; }
+    box.innerHTML = '';
+    for(const j of jobs){
+      const pct = j.size ? Math.min(100, Math.round((j.sent || 0) / j.size * 100)) : 0;
+      const stateTxt = {queued:'排队中', sending:'发送中', buffering:'缓冲中',
+                        done:'已完成', failed:'已中断'}[j.state] || j.state;
+      const row = document.createElement('div'); row.className = 'fitem';
+      row.innerHTML =
+        '<div style="flex:1; min-width:0">'+
+        '<span class="name"></span>'+
+        '<span class="size">'+fmtSize(j.sent || 0)+' / '+fmtSize(j.size)+'</span>'+
+        '<div class="prog" style="margin-top:6px"><i style="width:'+pct+'%"></i></div>'+
+        '<div class="meta">'+stateTxt+' → '+
+        (j.ip || '')+':'+j.port+(j.error ? ' · <span style="color:#c0392b">'+esc(j.error)+'</span>' : '')+
+        '</div></div>';
+      row.querySelector('.name').textContent = j.name;
+      if(j.state === 'failed'){
+        const btn = document.createElement('button');
+        btn.className = 'btn-orange'; btn.textContent = '重试（续传）';
+        btn.onclick = async ()=>{
+          btn.disabled = true; btn.textContent = '重试中…';
+          try{ await postJSON('/api/peers/retry', {id: j.id}); toast('已重新排队，从断点继续'); }
+          catch(e){ toast('重试失败：'+e); }
+          setTimeout(loadJobs, 800);
+        };
+        row.appendChild(btn);
+      }
+      box.appendChild(row);
+    }
+  }catch(e){}
+}
+
 $('fileinput').addEventListener('change', async e=>{
   const files = [...e.target.files]; e.target.value='';
   if(!sendTarget || !files.length) return;
@@ -601,32 +661,34 @@ $('fileinput').addEventListener('change', async e=>{
   activeSends++;
   try{
   for(const f of files){
-    toast('正在发送「'+f.name+'」到 '+p.name+'…');
+    // 新链路：先分片缓冲到本机（可续传），再交给后台线程发给对方 —— 关页面不中断
+    toast('正在缓冲「'+f.name+'」…');
     try{
-      // 注意：不能从网页直接 POST 到对方 IP —— 跨域预检 + CORS 会被浏览器
-      // 拦掉，只能拿到一个笼统的 onerror。改由本机服务端代发，错误原因准确。
-      const r = await new Promise((res,bad)=>{
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST','/api/peers/send?ip='+encodeURIComponent(p.ip)+
-                        '&port='+encodeURIComponent(p.port)+
-                        '&name='+encodeURIComponent(f.name));
-        xhr.setRequestHeader('Content-Type','application/octet-stream');
-        xhr.timeout = 0;            // 大文件不设上限，超时由服务端控制
-        xhr.onload = ()=>{
-          try{ res(JSON.parse(xhr.responseText)); }
-          catch(err){ bad('本机服务返回异常'); }
-        };
-        xhr.onerror = ()=>bad('本机服务无响应，请确认易码互传仍在运行');
-        xhr.ontimeout = ()=>bad('发送超时');
-        xhr.send(f);
-      });
-      if(r && r.ok){ ok++; toast('已发送「'+f.name+'」到 '+p.name); }
-      else { fail++; toast('发送「'+f.name+'」失败：'+((r&&r.error)||'未知原因')); }
+      const init = await postJSON('/api/peers/init',
+        {name: f.name, size: f.size, ip: p.ip, port: p.port});
+      if(!init.ok) throw new Error(init.error || '缓冲初始化失败');
+
+      let offset = init.offset || 0;
+      const CH = 2 * 1024 * 1024;
+      while(offset < f.size){
+        const end = Math.min(offset + CH, f.size);
+        const r = await fetch('/upload/chunk?id='+init.id+'&offset='+offset,
+          {method:'POST', headers:{'Content-Type':'application/octet-stream'},
+           body: f.slice(offset, end)});
+        const j = await r.json();
+        if(r.status === 409){ offset = j.offset; continue; }
+        if(!r.ok || !j.ok) throw new Error((j && j.error) || ('分片失败 HTTP '+r.status));
+        offset = j.offset;
+      }
+      const fin = await postJSON('/api/peers/commit', {id: init.id});
+      if(!fin || !fin.ok) throw new Error((fin && fin.error) || '提交后台发送失败');
+      ok++; toast('「'+f.name+'」已交给后台发送，可关闭页面');
     }catch(err){
-      fail++; toast('发送「'+f.name+'」失败：'+err);
+      fail++; toast('发送「'+f.name+'」失败：'+err.message);
     }
   }
   if(fail && !ok) toast('全部 '+fail+' 个文件发送失败，可点「重新扫描局域网」后再试');
+  loadJobs();
   }finally{ activeSends--; }
 });
 

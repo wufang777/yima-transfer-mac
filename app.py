@@ -42,8 +42,8 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.13.0"
-APP_BUILD = "20260930"
+APP_VERSION_NUM = "1.14.0"
+APP_BUILD = "20261029"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -735,6 +735,187 @@ def forward_file_to_peer(ip, port, filename, length, rfile, chunk=262144):
                 conn.close()
             except Exception:
                 pass
+
+
+# ---------- 电脑↔电脑：本机缓冲 + 后台断点转发（v1.14.0）----------
+# 为什么不再「网页直传对方」：浏览器一起传就绑在页面上，关掉页面即断。
+# 新链路：网页 → 分片写进本机缓冲 → 服务端后台线程用对方的
+# /upload/init|chunk|complete 分片转发；中断后按「对方已接收字节」续传。
+PEER_CHUNK = 2 * 1024 * 1024          # 转发分片大小，与前端分片一致
+JOBS_LOCK = threading.Lock()
+
+
+def _job_id(name, size, ip, port):
+    return hashlib.sha1(("%s|%d|%s|%s" % (name, size, ip, port)).encode("utf-8")).hexdigest()[:16]
+
+
+def _job_meta_file(jid):
+    return _parts_dir() / (jid + ".job.json")
+
+
+def _read_job(jid):
+    try:
+        d = json.loads(_job_meta_file(jid).read_text(encoding="utf-8"))
+        if isinstance(d, dict) and d.get("name"):
+            return d
+    except Exception:
+        pass
+    return None
+
+
+def _write_job(jid, data):
+    try:
+        _parts_dir().mkdir(parents=True, exist_ok=True)
+        data = dict(data)
+        data["updated"] = time.time()
+        _job_meta_file(jid).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _update_job(jid, **kw):
+    job = _read_job(jid) or {}
+    job.update(kw)
+    _write_job(jid, job)
+    return job
+
+
+def _peer_http(method, ip, port, path, body=None, timeout=30.0, ctype="application/octet-stream"):
+    """向对端发一次 HTTP 请求，返回 (ok, obj_or_str, err)。"""
+    conn = None
+    try:
+        conn = http.client.HTTPConnection(ip, int(port or PORT), timeout=timeout)
+        headers = {"Content-Type": ctype} if body is not None else {}
+        conn.request(method, path, body=body, headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read(65536)
+        if resp.status != 200:
+            return False, None, "HTTP %d" % resp.status
+        try:
+            return True, json.loads(raw.decode("utf-8", "ignore")), ""
+        except Exception:
+            return True, raw.decode("utf-8", "ignore"), ""
+    except Exception as e:
+        return False, None, _peer_send_error(e, port)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _peer_init_session(ip, port, name, size):
+    """在对端开一个分片上传会话，返回 (ok, peer_id, offset, err)。"""
+    body = json.dumps({"name": name, "size": size}, ensure_ascii=False).encode("utf-8")
+    ok, obj, err = _peer_http("POST", ip, port, "/upload/init", body=body,
+                              timeout=30.0, ctype="application/json")
+    if not ok or not isinstance(obj, dict) or not obj.get("ok"):
+        return False, "", 0, (obj or {}).get("error", err or "无法连接对方") if isinstance(obj, dict) else (err or "无法连接对方")
+    return True, obj.get("id", ""), int(obj.get("offset", 0) or 0), ""
+
+
+def _run_send_job(jid, max_retry=5):
+    """后台线程：把本机缓冲文件分片转发给对端，支持断点续传。"""
+    job = _read_job(jid)
+    if not job:
+        return
+    part = _part_file(jid)
+    name, size = job["name"], int(job["size"])
+    ip, port = job["ip"], int(job["port"])
+    try:
+        buffered = part.stat().st_size if part.exists() else 0
+    except OSError:
+        buffered = 0
+    if buffered < size:
+        _update_job(jid, state="failed", error="本机缓冲不完整（%d/%d），请重新选择文件补传" % (buffered, size))
+        return
+
+    _update_job(jid, state="sending", error="", buffered=buffered)
+    ok, peer_id, peer_offset, err = _peer_init_session(ip, port, name, size)
+    if not ok:
+        _update_job(jid, state="failed", error="连接对方失败：" + err)
+        _log("[后台发送] %s → %s:%d 连接失败：%s" % (name, ip, port, err))
+        return
+
+    sent = int(job.get("sent", 0) or 0)
+    if peer_offset > sent:
+        sent = peer_offset          # 以对端实际已收字节为准
+    elif sent > peer_offset:
+        sent = peer_offset          # 对端会话被重置，从它的进度继续
+    _update_job(jid, sent=sent)
+
+    try:
+        with open(part, "rb") as fh:
+            while sent < size:
+                fh.seek(sent)
+                buf = fh.read(min(PEER_CHUNK, size - sent))
+                if not buf:
+                    break
+                done = False
+                for attempt in range(max_retry):
+                    ok, obj, err = _peer_http(
+                        "POST", ip, port,
+                        "/upload/chunk?id=%s&offset=%d" % (peer_id, sent),
+                        body=buf, timeout=max(30.0, len(buf) / 1048576.0 * 30.0 + 30.0))
+                    if ok and isinstance(obj, dict) and obj.get("ok"):
+                        sent = int(obj.get("offset", sent + len(buf)))
+                        done = True
+                        break
+                    if ok and isinstance(obj, dict):
+                        # 对端说偏移不连续 → 以它给的为准重新对齐
+                        sent = int(obj.get("offset", sent))
+                    _log("[后台发送] %s 分片失败(%d/%d)：%s" % (name, attempt + 1, max_retry, err))
+                    time.sleep(min(5.0, 1.0 * (attempt + 1)))
+                if not done:
+                    _update_job(jid, state="failed", sent=sent,
+                                error="转发中断：" + (err or "未知原因") + "（可点重试，会从断点继续）")
+                    return
+                _update_job(jid, sent=sent)
+    except OSError as e:
+        _update_job(jid, state="failed", error="读取缓冲失败：%s" % e)
+        return
+
+    if sent < size:
+        _update_job(jid, state="failed", sent=sent, error="数据不完整，未能全部送达")
+        return
+
+    ok, obj, err = _peer_http("POST", ip, port, "/upload/complete",
+                              body=json.dumps({"id": peer_id}).encode("utf-8"),
+                              timeout=60.0, ctype="application/json")
+    if not ok or not isinstance(obj, dict) or not obj.get("ok"):
+        _update_job(jid, state="failed", error="收尾失败：%s" % (err or "对端未确认"))
+        return
+    _update_job(jid, state="done", sent=size)
+    try:
+        part.unlink()
+    except OSError:
+        pass
+    _log("[后台发送] 已送达 %s → %s:%d 《%s》 %d 字节" % (name, ip, port, name, size))
+
+
+def start_send_job(jid):
+    threading.Thread(target=_run_send_job, args=(jid,), daemon=True).start()
+
+
+def _resume_pending_jobs():
+    """程序启动时，把上次没发完（缓冲已完整）的任务接着发。"""
+    try:
+        for f in _parts_dir().glob("*.job.json"):
+            jid = f.name.split(".")[0]
+            job = _read_job(jid)
+            if not job or job.get("state") == "done":
+                continue
+            part = _part_file(jid)
+            try:
+                if job.get("state") in ("sending", "buffering") and \
+                        part.exists() and part.stat().st_size == int(job["size"]):
+                    _update_job(jid, state="queued")
+                    start_send_job(jid)
+            except (OSError, ValueError):
+                pass
+    except OSError:
+        pass
 
 
 def forward_text_to_peer(ip, port, text, from_name=None):
@@ -1611,6 +1792,29 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, list_peers())
             return
 
+        if path == "/api/peers/jobs":
+            # 后台发送任务进度（控制台/原生客户端轮询）
+            jobs = []
+            try:
+                for f in sorted(_parts_dir().glob("*.job.json"),
+                                key=lambda x: x.stat().st_mtime, reverse=True)[:20]:
+                    jid = f.name.split(".")[0]
+                    job = _read_job(jid)
+                    if not job:
+                        continue
+                    try:
+                        buffered = _part_file(jid).stat().st_size if _part_file(jid).exists() else 0
+                    except OSError:
+                        buffered = 0
+                    job = dict(job)
+                    job["id"] = jid
+                    job["buffered"] = buffered
+                    jobs.append(job)
+            except OSError:
+                pass
+            self._json(200, {"ok": True, "jobs": jobs})
+            return
+
         if path == "/api/scan":
             # 主动 HTTP 扫描本机各网段（不依赖 UDP 广播）
             try:
@@ -1844,8 +2048,80 @@ a.btn:active{opacity:.85}
             self._handle_upload_complete()
             return
 
+        if p == "/api/peers/init":
+            # 电脑互发第一步：在本机缓冲区建会话（网页分片写进来）
+            if not self._is_local():
+                self._deny_remote()
+                return
+            body = self._read_json() or {}
+            name = os.path.basename(urllib.parse.unquote(str(body.get("name") or ""))) or "upload.bin"
+            try:
+                size = int(body.get("size", 0) or 0)
+            except Exception:
+                size = 0
+            ip = str(body.get("ip") or "").strip()
+            try:
+                port = int(body.get("port", PORT) or PORT)
+            except Exception:
+                port = PORT
+            if size <= 0 or not ip:
+                self._json(400, {"ok": False, "error": "参数不完整"})
+                return
+            jid = _job_id(name, size, ip, port)
+            buffered = _part_offset(jid)
+            _write_part_meta(jid, name, size)
+            job = _read_job(jid) or {"name": name, "size": size, "ip": ip, "port": port,
+                                     "sent": 0, "state": "buffering", "error": ""}
+            job.update({"name": name, "size": size, "ip": ip, "port": port})
+            if job.get("state") not in ("sending", "done"):
+                job["state"] = "buffering" if buffered < size else "queued"
+            _write_job(jid, job)
+            self._json(200, {"ok": True, "id": jid, "offset": buffered,
+                             "resumed": buffered > 0, "job": job})
+            return
+
+        if p == "/api/peers/commit":
+            # 缓冲写满后，交给后台线程发送给对方（关页面也不中断）
+            if not self._is_local():
+                self._deny_remote()
+                return
+            body = self._read_json() or {}
+            jid = "".join(c for c in str(body.get("id") or "") if c in "0123456789abcdef")[:16]
+            job = _read_job(jid)
+            if not job:
+                self._json(404, {"ok": False, "error": "发送任务不存在"})
+                return
+            part = _part_file(jid)
+            try:
+                buffered = part.stat().st_size if part.exists() else 0
+            except OSError:
+                buffered = 0
+            if buffered < int(job["size"]):
+                self._json(409, {"ok": False, "error": "缓冲不完整",
+                                 "buffered": buffered, "size": int(job["size"])})
+                return
+            _update_job(jid, state="queued", error="", buffered=buffered)
+            start_send_job(jid)
+            self._json(200, {"ok": True, "id": jid, "job": _read_job(jid)})
+            return
+
+        if p == "/api/peers/retry":
+            if not self._is_local():
+                self._deny_remote()
+                return
+            body = self._read_json() or {}
+            jid = "".join(c for c in str(body.get("id") or "") if c in "0123456789abcdef")[:16]
+            job = _read_job(jid)
+            if not job:
+                self._json(404, {"ok": False, "error": "发送任务不存在"})
+                return
+            _update_job(jid, state="queued", error="")
+            start_send_job(jid)
+            self._json(200, {"ok": True, "id": jid, "job": _read_job(jid)})
+            return
+
         if p == "/api/peers/send":
-            # 由本机服务端代发到对方设备（绕开浏览器跨域限制，见 forward_file_to_peer 注释）
+            # 旧链路：由本机服务端直接流式代发（保留兼容）
             if not self._is_local():
                 self._deny_remote()
                 return
@@ -2648,6 +2924,7 @@ def _bootstrap_server(from_restart, on_stage=None):
         return None, None
 
     start_discovery()
+    _resume_pending_jobs()      # 上次没发完的后台任务，接着发
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, save_qr_image(CONNECT_URL)
 
