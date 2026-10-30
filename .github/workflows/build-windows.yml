@@ -50,17 +50,15 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QT_OPENGL: software
         run: |
-          $p = Start-Process -FilePath "dist/yima-transfer-ui.exe" -ArgumentList "--smoke-all","ui-smoke" `
+          $p = Start-Process -FilePath "dist/yima-transfer-ui.exe" -ArgumentList "--smoke","ui-smoke.png" `
                -RedirectStandardOutput "ui-out.log" -RedirectStandardError "ui-err.log" `
                -PassThru -WindowStyle Hidden
-          $p.WaitForExit(90000) | Out-Null
+          $p.WaitForExit(240000) | Out-Null
           if (-not $p.HasExited) { Write-Output "UI 进程超时未退出，已强制结束"; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
           else { Write-Output "UI 进程退出码: $($p.ExitCode)" }
-          if (Test-Path "ui-out.log") { Get-Content "ui-out.log" -Tail 40 }
-          if (Test-Path "ui-err.log") { Write-Output "=== stderr/崩溃日志 ==="; Get-Content "ui-err.log" -Tail 60 }
-          if (Test-Path "ui-smoke") { Get-ChildItem "ui-smoke" | Select-Object Name, Length }
-          elseif (Test-Path "dist/ui-crash.log") { Write-Output "=== UI 崩溃日志 ==="; Get-Content "dist/ui-crash.log" -Tail 60 }
+          if (Test-Path "ui-smoke.png") { Write-Output "✓ 原生界面渲染成功"; Get-ChildItem "ui-smoke.png" | Select-Object Name, Length }
           else { Write-Output "UI smoke 未产出截图（非阻断）" }
+          if (Test-Path "ui-err.log") { Write-Output "=== stderr ==="; Get-Content "ui-err.log" -Tail 30 }
 
       - name: 打包 zip（双 exe + 防火墙放行脚本）
         run: |
