@@ -56,6 +56,6 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,               # 无黑色控制台窗口
+    console=True,                 # 临时开启：便于 CI 抓启动报错（定位后会改回 False）
     icon=os.path.join(SPEC_DIR, "icon.ico"),
 )
