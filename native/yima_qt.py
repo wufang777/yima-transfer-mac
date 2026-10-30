@@ -1405,7 +1405,38 @@ class MainWindow(QMainWindow):
             self.refresh_texts()
 
 
+def _crash_log_path():
+    """崩溃日志落盘位置：打包后放在 exe 同目录，源码运行放在仓库根目录。"""
+    try:
+        base = Path(sys.executable).parent if getattr(sys, "frozen", False) else ROOT
+        return base / "ui-crash.log"
+    except Exception:
+        return Path.cwd() / "ui-crash.log"
+
+
 def main():
+    """外壳：任何异常都写 ui-crash.log（Windows GUI 版看不到终端输出）。"""
+    try:
+        return _main()
+    except BaseException:  # noqa: BLE001
+        import traceback
+        msg = traceback.format_exc()
+        try:
+            p = _crash_log_path()
+            p.write_text(msg, encoding="utf-8")
+            print("崩溃日志已写入: %s" % p)
+        except Exception:
+            pass
+        print(msg)
+        try:
+            _app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.critical(None, "%s 启动失败" % APP_NAME, msg[-1500:])
+        except Exception:
+            pass
+        return 1
+
+
+def _main():
     args = list(sys.argv[1:])
     smoke_out = None
     smoke_all = None
