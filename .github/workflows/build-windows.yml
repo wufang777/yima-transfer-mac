@@ -17,14 +17,21 @@ jobs:
           architecture: "x64"
 
       - name: 安装依赖
-        run: pip install pyinstaller pystray Pillow segno
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pystray Pillow segno
+          echo "== 安装 Qt 原生界面所需依赖 =="
+          pip install PySide6-Essentials
 
       - name: 生成 ICO 图标
         run: |
           python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('win/icon.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
 
-      - name: PyInstaller 打包
+      - name: PyInstaller 打包（服务端）
         run: pyinstaller win/yima_win.spec
+
+      - name: PyInstaller 打包（原生界面）
+        run: pyinstaller win/yima_qt_win.spec
 
       - name: 冒烟测试（headless 起服务并验证 API）
         run: |
@@ -37,11 +44,21 @@ jobs:
           Write-Output $f.Content
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 
-      - name: 打包 zip（exe + 防火墙放行脚本）
+      - name: 冒烟测试（原生界面离屏渲染，失败不阻断打包）
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_OPENGL: software
+        run: |
+          & "dist/yima-transfer-ui.exe" --smoke-all "ui-smoke"
+          if (Test-Path "ui-smoke") { Get-ChildItem "ui-smoke" | Select-Object Name, Length } else { Write-Output "UI smoke 未产出截图（非阻断）" }
+
+      - name: 打包 zip（双 exe + 防火墙放行脚本）
         run: |
           $tag = "${{ github.ref_name }}".TrimStart("v")
           if ([string]::IsNullOrEmpty($tag) -or "${{ github.ref_name }}".StartsWith("refs")) { $tag = "dev" }
-          Compress-Archive -Path "dist/yima-transfer.exe","win/防火墙放行.bat" -DestinationPath "dist/yima-transfer-win64-$tag.zip" -Force
+          Compress-Archive -Path "dist/yima-transfer.exe","dist/yima-transfer-ui.exe","win/防火墙放行.bat" -DestinationPath "dist/yima-transfer-win64-$tag.zip" -Force
+          Get-ChildItem dist/*.zip | Select-Object Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
