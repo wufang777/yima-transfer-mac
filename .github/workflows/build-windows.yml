@@ -51,7 +51,9 @@ jobs:
           QT_OPENGL: software
         run: |
           & "dist/yima-transfer-ui.exe" --smoke-all "ui-smoke"
-          if (Test-Path "ui-smoke") { Get-ChildItem "ui-smoke" | Select-Object Name, Length } else { Write-Output "UI smoke 未产出截图（非阻断）" }
+          if (Test-Path "ui-smoke") { Get-ChildItem "ui-smoke" | Select-Object Name, Length }
+          elseif (Test-Path "dist/ui-crash.log") { Write-Output "=== UI 崩溃日志 ==="; Get-Content "dist/ui-crash.log" -Tail 60 }
+          else { Write-Output "UI smoke 未产出截图，也没有崩溃日志（非阻断）" }
 
       - name: 打包 zip（双 exe + 防火墙放行脚本）
         run: |
