@@ -43,7 +43,7 @@ APP_COMPANY = "易码通科技"
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
 APP_VERSION_NUM = "1.15.0"
-APP_BUILD = "20261030"
+APP_BUILD = "20261031"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
