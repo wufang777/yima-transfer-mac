@@ -250,6 +250,12 @@ def _qss(dark):
     QWidget.card { background: %(card)s; border: 1px solid %(border)s; border-radius: 10px; }
     QWidget.sep  { background: %(sep)s; max-height: 1px; }
 
+    QWidget#targetbar { background: %(card)s; border: 1px solid %(border)s; border-radius: 10px; }
+    QWidget#targetbar[warn="true"] { border-color: #FF9F0A; }
+    QLabel#targetname { font-size: 15px; font-weight: 600; }
+    QLabel#targetip   { font-size: 12px; color: %(sub)s; }
+    QLabel#targetwarn { font-size: 15px; font-weight: 600; color: #FF9F0A; }
+
     QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 %(b_top)s, stop:1 %(b_bot)s);
                   border: 1px solid %(border)s; border-radius: 6px; padding: 5px 14px;
                   min-height: 20px; color: %(text)s; }
@@ -399,6 +405,61 @@ def hsep():
     return line
 
 
+def short_name(text, n=16):
+    """设备名过长时省略，避免按钮被撑破。"""
+    s = str(text or "")
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+# ---------------------------------------------------- 目标设备显示条 ----
+class TargetBar(QWidget):
+    """常驻显示「发送至：某设备（IP:端口）」，未选中时橙色告警。"""
+
+    changeRequested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("targetbar")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(8)
+
+        self.lb_tag = QLabel("发送至")
+        self.lb_tag.setObjectName("hint")
+        self.lb_name = QLabel("未选择目标设备")
+        self.lb_name.setObjectName("targetwarn")
+        self.lb_ip = QLabel("")
+        self.lb_ip.setObjectName("targetip")
+        self.btn_change = QPushButton("更改…")
+        self.btn_change.setProperty("flatBtn", True)
+        self.btn_change.clicked.connect(self.changeRequested.emit)
+
+        lay.addWidget(self.lb_tag)
+        lay.addWidget(self.lb_name)
+        lay.addSpacing(4)
+        lay.addWidget(self.lb_ip, 1)
+        lay.addWidget(self.btn_change)
+
+    def _apply(self, widget, obj_name):
+        widget.setObjectName(obj_name)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def set_peer(self, p):
+        if p:
+            self._apply(self.lb_name, "targetname")
+            self.lb_name.setText(p.get("name") or p.get("ip") or "?")
+            self.lb_ip.setText("%s:%s" % (p.get("ip"), p.get("port")))
+            self.setProperty("warn", False)
+        else:
+            self._apply(self.lb_name, "targetwarn")
+            self.lb_name.setText("未选择目标设备")
+            self.lb_ip.setText("在「设备」页选中一台电脑")
+            self.setProperty("warn", True)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
 class DirRow(QWidget):
     """接收目录选择行：只读路径 + 常用位置 + 更改… + 在 Finder 中显示。"""
 
@@ -546,6 +607,8 @@ class MainWindow(QMainWindow):
         self.attached = attached
         self.jobs = []
         self._settings = {}
+        self._peer_names = {}          # ip -> 设备名，供任务列表回显
+        self.target_bars = []          # 常驻「发送至」条，多处同步
         self.setWindowTitle(APP_NAME)
         self.resize(1060, 720)
         self.setMinimumSize(960, 660)
@@ -617,6 +680,10 @@ class MainWindow(QMainWindow):
         self.side_conn.setObjectName("hint")
         self.side_conn.setWordWrap(True)
         v.addWidget(self.side_conn)
+        self.side_target = QLabel("目标：未选择")
+        self.side_target.setObjectName("hint")
+        self.side_target.setWordWrap(True)
+        v.addWidget(self.side_target)
         self.btn_code = QPushButton("连接码")
         self.btn_code.setProperty("accent", True)
         self.btn_code.setProperty("accentRole", "primary")
@@ -746,6 +813,7 @@ class MainWindow(QMainWindow):
         self.peer_list = QListWidget()
         self.peer_list.setSelectionMode(QAbstractItemView.SingleSelection)
         self.peer_list.setMinimumHeight(220)
+        self.peer_list.itemSelectionChanged.connect(self._update_target)
         v.addWidget(self.peer_list)
         self.dev_hint = QLabel("")
         self.dev_hint.setObjectName("hint")
@@ -785,7 +853,9 @@ class MainWindow(QMainWindow):
             return
         keep = self._current_peer()
         self.peer_list.clear()
+        self._peer_names = {}
         for p in peers:
+            self._peer_names[str(p.get("ip"))] = p.get("name") or p.get("ip")
             item = QListWidgetItem("%s　（%s:%s）" % (p.get("name", "?"), p.get("ip"), p.get("port")))
             item.setData(Qt.UserRole, p)
             self.peer_list.addItem(item)
@@ -794,6 +864,7 @@ class MainWindow(QMainWindow):
         self.dev_hint.setText("共 %d 台设备" % len(peers))
         self.side_conn.setText("端口 %d · 已发现 %d 台设备" % (self.port, len(peers)))
         self.conn_pill.setText("服务运行中 · 端口 %d" % self.port)
+        self._update_target()
 
     def scan(self):
         self.status.showMessage("正在扫描局域网…", 4000)
@@ -830,12 +901,46 @@ class MainWindow(QMainWindow):
         it = self.peer_list.currentItem()
         return it.data(Qt.UserRole) if it else None
 
+    def _peer_label(self, p=None):
+        """目标设备的可读名称（用于按钮/提示文案）。"""
+        p = p if p is not None else self._current_peer()
+        if not p:
+            return None
+        return short_name(p.get("name") or p.get("ip") or "?")
+
+    def _update_target(self):
+        """同步「发送至」条、侧栏与所有按钮上的设备名，防止多发错发。"""
+        p = self._current_peer()
+        for bar in getattr(self, "target_bars", []):
+            bar.set_peer(p)
+        label = self._peer_label(p)
+        txt = ("目标：%s（%s:%s）" % (label, p.get("ip"), p.get("port"))) if p else "目标：未选择"
+        if getattr(self, "side_target", None):
+            self.side_target.setText(txt)
+        name = ("「%s」" % label) if label else "选中设备"
+        if getattr(self, "btn_pick", None):
+            self.btn_pick.setText("选择文件发送到%s…" % name)
+        if getattr(self, "btn_send_file", None):
+            self.btn_send_file.setText("发送文件到%s" % name)
+        if getattr(self, "btn_send_text", None):
+            self.btn_send_text.setText("发送文字到%s" % name)
+        if getattr(self, "btn_text_send", None):
+            self.btn_text_send.setText("发送到%s" % name)
+        if getattr(self, "dev_hint", None) and p:
+            self.dev_hint.setText("已选中：%s（%s:%s） · 共 %d 台设备"
+                                  % (p.get("name"), p.get("ip"), p.get("port"),
+                                     self.peer_list.count()))
+
     def _goto(self, name):
         if name in self.NAV:
             self.nav.setCurrentRow(self.NAV.index(name))
 
     # ---------- 页②：发送 / 后台任务 ----------
     def _build_send(self):
+        bar = TargetBar()
+        bar.changeRequested.connect(lambda: self._goto("设备"))
+        self.target_bars.append(bar)
+
         card, v = make_card("发送文件",
                             "文件先分片缓冲到本机，再交给后台任务发出；中断后可用「断点续传」继续。")
         row = QHBoxLayout()
@@ -876,13 +981,15 @@ class MainWindow(QMainWindow):
         hl = QVBoxLayout(holder)
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(14)
+        hl.addWidget(bar)
         hl.addWidget(card)
         hl.addWidget(card2)
         return holder
 
     def _start_send(self, path, target):
         self.up_bar.setValue(0)
-        self.up_label.setText("缓冲中：%s" % os.path.basename(path))
+        dest = ("→ %s" % (target.get("name") or target.get("ip"))) if target else "（本机）"
+        self.up_label.setText("缓冲中：%s %s" % (os.path.basename(path), dest))
         self._thread = QThread(self)
         self._worker = SendWorker(self.api, path, target)
         self._worker.moveToThread(self._thread)
@@ -913,8 +1020,23 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先在「设备」页选中一台电脑")
             return
         path, _ = QFileDialog.getOpenFileName(self, "选择要发送的文件")
-        if path:
-            self._start_send(path, p)
+        if not path:
+            return
+        target = "%s（%s:%s）" % (p.get("name") or p.get("ip"), p.get("ip"), p.get("port"))
+        try:
+            size = fmt_size(os.path.getsize(path))
+        except OSError:
+            size = "未知"
+        ans = QMessageBox.question(
+            self, "确认发送到这台设备",
+            "目标设备：%s\n\n文件：%s\n大小：%s\n\n确认无误后开始发送。"
+            % (target, os.path.basename(path), size),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if ans != QMessageBox.Yes:
+            self.status.showMessage("已取消，未发送", 4000)
+            return
+        self.status.showMessage("正在发送到 %s" % target, 5000)
+        self._start_send(path, p)
 
     def send_file_local(self):
         path, _ = QFileDialog.getOpenFileName(self, "选择要上传到本机的文件")
@@ -945,10 +1067,14 @@ class MainWindow(QMainWindow):
                      "done": "已完成", "failed": "已中断"}
         for j in self.jobs:
             pct = int((j.get("sent", 0) or 0) * 100 / max(1, j.get("size", 1)))
+            dest = ""
+            if j.get("ip"):
+                nm = self._peer_names.get(str(j.get("ip")))
+                dest = "　→　%s（%s:%s）" % (nm, j.get("ip"), j.get("port")) if nm \
+                    else "　→　%s:%s" % (j.get("ip"), j.get("port"))
             txt = "%s　·　%s　·　%d%%（%s / %s）%s" % (
                 state_txt.get(j.get("state"), j.get("state")), j.get("name"), pct,
-                fmt_size(j.get("sent", 0)), fmt_size(j.get("size", 0)),
-                ("　→　%s:%s" % (j.get("ip"), j.get("port"))) if j.get("ip") else "")
+                fmt_size(j.get("sent", 0)), fmt_size(j.get("size", 0)), dest)
             if j.get("error"):
                 txt += "　【%s】" % j["error"]
             item = QListWidgetItem(txt)
@@ -970,6 +1096,10 @@ class MainWindow(QMainWindow):
 
     # ---------- 页③：文字 ----------
     def _build_text(self):
+        bar = TargetBar()
+        bar.changeRequested.connect(lambda: self._goto("设备"))
+        self.target_bars.append(bar)
+
         card, v = make_card("发送文字", "网址、验证码、临时笔记 —— 可发到其它电脑，或推送到手机网页。")
         self.text_in = QTextEdit()
         self.text_in.setPlaceholderText("输入要发送的文字…")
@@ -1004,6 +1134,7 @@ class MainWindow(QMainWindow):
         hl = QVBoxLayout(holder)
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(14)
+        hl.addWidget(bar)
         hl.addWidget(card)
         hl.addWidget(card2)
         return holder
@@ -1020,7 +1151,9 @@ class MainWindow(QMainWindow):
         try:
             q = urllib.parse.urlencode({"ip": p["ip"], "port": p["port"]})
             r = self.api.post_json("/api/text/send?" + q, {"text": txt})
-            self.status.showMessage("已发送" if r.get("ok") else ("失败：" + str(r.get("error"))), 4000)
+            dest = "%s（%s:%s）" % (p.get("name") or p.get("ip"), p.get("ip"), p.get("port"))
+            self.status.showMessage(("已发送到 %s" % dest) if r.get("ok")
+                                    else ("失败：" + str(r.get("error"))), 5000)
             if r.get("ok"):
                 self.text_in.clear()
         except Exception as e:
