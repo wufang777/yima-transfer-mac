@@ -82,7 +82,7 @@ app = BUNDLE(
         "CFBundleName": "易码互传",
         "CFBundleDisplayName": "易码互传",
         "CFBundleShortVersionString": "1.15.0",
-        "CFBundleVersion": "20261030",
+        "CFBundleVersion": "20261031",
         "NSHighResolutionCapable": True,
         "NSRequiresAquaSystemAppearance": False,   # 允许跟随系统深色模式
         "LSUIElement": False,                      # 在 Dock 显示图标
