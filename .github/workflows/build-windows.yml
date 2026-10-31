@@ -50,13 +50,13 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QT_OPENGL: software
         run: |
-          $p = Start-Process -FilePath "dist/yima-transfer-ui.exe" -ArgumentList "--smoke","ui-smoke.png" `
+          $p = Start-Process -FilePath "dist/yima-transfer-ui.exe" -ArgumentList "--smoke-all","ui-smoke" `
                -RedirectStandardOutput "ui-out.log" -RedirectStandardError "ui-err.log" `
                -PassThru -WindowStyle Hidden
           $p.WaitForExit(240000) | Out-Null
           if (-not $p.HasExited) { Write-Output "UI 进程超时未退出，已强制结束"; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
           else { Write-Output "UI 进程退出码: $($p.ExitCode)" }
-          if (Test-Path "ui-smoke.png") { Write-Output "✓ 原生界面渲染成功"; Get-ChildItem "ui-smoke.png" | Select-Object Name, Length }
+          if (Test-Path "ui-smoke") { Write-Output "✓ 原生界面渲染成功"; Get-ChildItem "ui-smoke" | Select-Object Name, Length }
           else { Write-Output "UI smoke 未产出截图（非阻断）" }
           if (Test-Path "ui-err.log") { Write-Output "=== stderr ==="; Get-Content "ui-err.log" -Tail 30 }
 
@@ -71,4 +71,11 @@ jobs:
         with:
           name: yima-transfer-win64
           path: dist/*.zip
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-smoke
+          path: ui-smoke/**
           retention-days: 30
