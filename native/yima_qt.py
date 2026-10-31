@@ -232,7 +232,7 @@ def _qss(dark):
     btn_bot = "#333335" if dark else "#F3F3F5"
 
     return """
-    QWidget { color: %(text)s; font-family: "PingFang SC", "Helvetica Neue", "Segoe UI", sans-serif;
+    QWidget { color: %(text)s; font-family: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", "Segoe UI", sans-serif;
               font-size: 13px; }
     QWidget#root { background: %(bg)s; }
     QWidget#sidebar { background: %(sidebar)s; }
