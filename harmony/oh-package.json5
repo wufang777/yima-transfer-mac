@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "description": "易码互传鸿蒙版（手机 ⇄ 电脑 局域网互传）",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
+}

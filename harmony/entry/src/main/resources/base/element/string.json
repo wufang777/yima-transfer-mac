@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "易码互传鸿蒙版主模块"
+    },
+    {
+      "name": "app_name",
+      "value": "易码互传"
+    },
+    {
+      "name": "ability_desc",
+      "value": "手机 ⇄ 电脑 局域网互传"
+    }
+  ]
+}

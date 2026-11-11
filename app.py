@@ -42,8 +42,8 @@ APP_COMPANY = "易码通科技"
 #   APP_VERSION_NUM  语义化版本：主.次.修订  —— 功能新增升次版本，修 bug 升修订号
 #   APP_BUILD        构建号：YYYYMMDD      —— 每构建一次即更新，用于区分同日多次构建
 #   APP_CHANNEL      发布通道：stable / beta
-APP_VERSION_NUM = "1.14.0"
-APP_BUILD = "20261029"
+APP_VERSION_NUM = "1.16.0"
+APP_BUILD = "20261111"
 APP_CHANNEL = "stable"
 APP_RELEASE_DATE = "%s-%s-%s" % (APP_BUILD[0:4], APP_BUILD[4:6], APP_BUILD[6:8])
 APP_VERSION = "v%s" % APP_VERSION_NUM
@@ -405,7 +405,19 @@ def _ip_score(iface, ip):
 
 
 def get_lan_ip():
-    """尽力获取真实局域网 IP；失败回退 127.0.0.1。"""
+    """尽力获取真实局域网 IP；失败回退 127.0.0.1。
+
+    多网卡（同时接了多个网段）时，优先返回「最近来访客户端所在网段」
+    的那块网卡地址——手机在哪个网段，二维码就展示哪个网段的地址。
+    """
+    with _CLIENT_LOCK:
+        cip = _LAST_CLIENT["ip"]
+    if cip:
+        cnet = cip.rsplit(".", 1)[0]
+        matches = [ip for _iface, ip in _ifconfig_candidates()
+                   if not _bad_lan_ip(ip) and ip.rsplit(".", 1)[0] == cnet]
+        if len(matches) == 1:
+            return matches[0]
     best, best_score = None, -1
     for iface, ip in _ifconfig_candidates():
         if _bad_lan_ip(ip):
@@ -448,6 +460,28 @@ def _local_ipv4s():
     except Exception:
         pass
     return out
+
+
+# 最近一次连进来的客户端 IP（多网卡场景下用于选对二维码地址）
+_LAST_CLIENT = {"ip": "", "ts": 0.0}
+_CLIENT_LOCK = threading.Lock()
+
+
+def _note_client(ip):
+    """记录最近来访的局域网客户端。
+
+    Mac 同时接了多个网段（如 192.168.1.x / 192.168.10.x）时，
+    二维码应展示「手机真正能到的那块网卡」的地址。
+    """
+    if not ip or ip.startswith("127.") or _bad_lan_ip(ip):
+        return
+    if ip in local_ip_set():
+        return    # 本机自己访问，不算外部客户端
+    with _CLIENT_LOCK:
+        if _LAST_CLIENT["ip"] != ip:
+            _LAST_CLIENT["ip"] = ip
+            _LAST_CLIENT["ts"] = time.time()
+            _log("[客户端] 最近来访者：%s" % ip)
 
 
 def rebuild_connect_url():
@@ -975,23 +1009,64 @@ def text_history(limit=100):
 
 # ---- 推送到手机：电脑把文字放进队列，手机页轮询取回（保留最近 50 条） ----
 _PHONE_PUSH_LOCK = threading.Lock()
-_PHONE_PUSH_SEQ = [0]
+# 以毫秒时间戳为起点：手机本地记着 lastMsgId，若服务端重启后 id 从 1 重新计数，
+# 新消息 id 会小于手机记录的旧 id 而被永久跳过。用时间戳起点保证跨重启单调递增。
+_PHONE_PUSH_SEQ = [int(time.time() * 1000)]
 _PHONE_PUSH_ITEMS = []
 
+# ---- 在线手机设备表：手机轮询消息时自带 did+name 注册心跳 ----
+_PHONE_DEVICES = {}                 # did -> {"did","name","ip","last_seen"}
+_PHONE_DEVICES_LOCK = threading.Lock()
+_PHONE_DEVICE_TIMEOUT = 30.0        # 手机每 3 秒轮询一次，30 秒无心跳即离线
 
-def phone_push_text(text):
+
+def phone_register(did, name, ip):
+    """登记/刷新一台在线手机。did 为空则忽略（旧版手机端没有身份）。"""
+    did = str(did or "").strip()
+    if not did or len(did) > 64:
+        return
+    name = str(name or "").strip()[:64] or did
+    with _PHONE_DEVICES_LOCK:
+        is_new = did not in _PHONE_DEVICES
+        _PHONE_DEVICES[did] = {
+            "did": did, "name": name,
+            "ip": str(ip or "")[:64],
+            "last_seen": time.time(),
+        }
+    if is_new:
+        _log("[手机] 上线 %s（%s）" % (name, ip))
+
+
+def phone_list():
+    """当前在线手机列表（先剔除过期）。"""
+    now = time.time()
+    with _PHONE_DEVICES_LOCK:
+        for did in [d for d, v in _PHONE_DEVICES.items()
+                    if now - v["last_seen"] > _PHONE_DEVICE_TIMEOUT]:
+            _log("[手机] 离线 %s" % _PHONE_DEVICES[did]["name"])
+            _PHONE_DEVICES.pop(did, None)
+        return [dict(v) for v in _PHONE_DEVICES.values()]
+
+
+def phone_push_text(text, did=None):
+    """did=None 表示广播给所有手机（兼容旧版手机端）。"""
     with _PHONE_PUSH_LOCK:
         _PHONE_PUSH_SEQ[0] += 1
         item = {"id": _PHONE_PUSH_SEQ[0], "text": text,
-                "ts": int(time.time())}
+                "ts": int(time.time()), "did": did}
         _PHONE_PUSH_ITEMS.append(item)
         del _PHONE_PUSH_ITEMS[:-50]
         return item["id"]
 
 
-def phone_push_after(after_id):
+def phone_push_after(after_id, did=None):
+    """取回队列内容；带 did 的请求只拿到「广播 + 发给自己」的。"""
     with _PHONE_PUSH_LOCK:
-        return [dict(x) for x in _PHONE_PUSH_ITEMS if x["id"] > after_id]
+        if not did:
+            # 旧版手机端/网页：无身份，返回全部（保持兼容）
+            return [dict(x) for x in _PHONE_PUSH_ITEMS if x["id"] > after_id]
+        return [dict(x) for x in _PHONE_PUSH_ITEMS
+                if x["id"] > after_id and (x.get("did") is None or x.get("did") == did)]
 
 
 def _probe_live_instance(port=None):
@@ -1719,6 +1794,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- GET ----
     def do_GET(self):
+        _note_client(self.client_address[0])
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
@@ -1860,11 +1936,26 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/text/phone/messages":
             # 手机页轮询：取走推送队列里 id 大于 after 的内容（?after=0 取最近 50 条）
+            # ?did=xx&name=yy：手机身份心跳，消息只返回「广播 + 发给自己」的
+            q_ = urllib.parse.parse_qs(parsed.query)
             try:
-                after = int(urllib.parse.parse_qs(parsed.query).get("after", ["0"])[0])
+                after = int(q_.get("after", ["0"])[0])
             except Exception:
                 after = 0
-            self._json(200, {"ok": True, "messages": phone_push_after(after)})
+            did = q_.get("did", [None])[0]
+            if did:
+                phone_register(did, q_.get("name", [None])[0],
+                               self.client_address[0])
+            self._json(200, {"ok": True,
+                             "messages": phone_push_after(after, did)})
+            return
+
+        if path == "/api/phones":
+            # 本机控制台查看在线手机列表（Qt 原生版「推送到手机」选择用）
+            if not self._is_local():
+                self._deny_remote()
+                return
+            self._json(200, {"ok": True, "phones": phone_list()})
             return
 
         if path == "/api/local/update":
@@ -2029,6 +2120,7 @@ a.btn:active{opacity:.85}
 
     # ---- POST ----
     def do_POST(self):
+        _note_client(self.client_address[0])
         parsed = urllib.parse.urlparse(self.path)
         p = parsed.path
 
@@ -2184,6 +2276,7 @@ a.btn:active{opacity:.85}
 
         if p == "/api/text/phone":
             # 推送到手机：把文字放进队列，手机页轮询取回（仅本机控制台可推）
+            # body.did（可选）：指定推送给某台手机；不填 = 广播给所有手机
             if not self._is_local():
                 self._deny_remote()
                 return
@@ -2196,8 +2289,17 @@ a.btn:active{opacity:.85}
                 self._json(400, {"ok": False,
                                  "error": "文字过长（上限 %d 字）" % TEXT_MAX_LEN})
                 return
-            pid = phone_push_text(text)
-            _log("[推送] 已推送 %d 字到手机队列" % len(text))
+            did = str(body.get("did") or "").strip() or None
+            target = ""
+            if did:
+                # 校验目标在线，避免推给早已离线的手机
+                hit = [d for d in phone_list() if d["did"] == did]
+                if not hit:
+                    self._json(404, {"ok": False, "error": "目标手机已离线"})
+                    return
+                target = "（%s）" % hit[0]["name"]
+            pid = phone_push_text(text, did)
+            _log("[推送] 已推送 %d 字到手机队列%s" % (len(text), target))
             self._json(200, {"ok": True, "id": pid})
             return
 

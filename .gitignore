@@ -39,3 +39,28 @@ win/build/
 win/dist/
 win/icon.ico
 win/__pycache__/
+
+# ---- 鸿蒙（HarmonyOS）工程 ----
+harmony/node_modules/
+harmony/oh_modules/
+harmony/.hvigor/
+harmony/.idea/
+harmony/**/build/
+harmony/.preview/
+harmony/.cxx/
+
+# ---- 安卓工程 ----
+android/**/build/
+android/.gradle/
+android/.idea/
+android/.cxx/
+android/local.properties
+
+# ---- 签名密钥（绝不入库）----
+harmony/signing/
+*.p12
+*.key
+*.csr
+*.p7b
+*.keystore
+*.jks

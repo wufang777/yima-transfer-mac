@@ -61,6 +61,17 @@
   .meta{font-size:12px; color:var(--sub); line-height:1.8; margin-top:10px}
   .empty{color:var(--sub); font-size:13px; text-align:center; padding:18px 0}
 
+  /* 目标设备条：多设备环境下明确「发给谁」，避免发错 */
+  .targetbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin-bottom:12px;
+    background:var(--bg); font-size:13px}
+  .targetbar[warn="1"]{border-color:#FF9F0A}
+  .targetbar .tag{color:var(--sub); font-size:12px}
+  .targetbar b{font-size:14px}
+  .targetbar #targetname{color:var(--txt)}
+  .targetbar[warn="1"] #targetname{color:#FF9F0A}
+  .targetbar .tip{color:var(--sub); font-size:12px}
+
   /* 模块② 文字互传（对话式） */
   .chat{flex:1; display:flex; flex-direction:column; gap:10px; padding:6px 2px 10px;
     max-height:300px; overflow-y:auto}
@@ -205,6 +216,12 @@
   <!-- ═══ 模块③：文件互传（双标签） ═══ -->
   <div class="card" id="filecard" style="margin-top:16px">
     <h2><span class="dot" style="background:var(--orange)"></span>文件互传</h2>
+    <div class="targetbar" id="targetbar" warn="1">
+      <span class="tag">发送至</span>
+      <b id="targetname">未选择目标设备</b>
+      <span class="tip" id="targetip">在上方「局域网设备」点某台电脑的「发文件」来选择</span>
+    </div>
+
     <div class="tabs">
       <button class="on" id="tab1btn">📤 发送到手机</button>
       <button id="tab2btn">📥 已接收的文件</button>
@@ -319,6 +336,21 @@ window.addEventListener('beforeunload', e => {
   if(activeSends > 0){ e.preventDefault(); e.returnValue = ''; }
 });
 let sendTarget = null;      // {ip, port, name}
+
+// 顶部「发送至：XXX」条 —— 多设备时明确目标，避免发错
+function updateTargetBar(){
+  const bar = $('targetbar'), nm = $('targetname'), tip = $('targetip');
+  if(!bar) return;
+  if(sendTarget){
+    bar.setAttribute('warn','0');
+    nm.textContent = sendTarget.name || sendTarget.ip;
+    tip.textContent = sendTarget.ip + ':' + sendTarget.port;
+  }else{
+    bar.setAttribute('warn','1');
+    nm.textContent = '未选择目标设备';
+    tip.textContent = '在上方「局域网设备」点某台电脑的「发文件」来选择';
+  }
+}
 let sendFiles  = [];
 let textPeerList = [];      // 「互传文字」用的设备列表（loadPeers 里同步）
 let LOCAL_PORT = 8000;      // 本机服务端口（loadStatus 里更新，扫码切换 localhost 用）
@@ -583,7 +615,11 @@ async function loadPeers(){
           '<span class="acts">'+
           '<button class="btn-orange" data-act="file">发文件</button>'+
           '<button class="btn-ghost" data-act="text">发文字</button></span>';
-        row.querySelector('[data-act=file]').onclick = ()=>{ sendTarget = p; $('fileinput').click(); };
+        row.querySelector('[data-act=file]').onclick = ()=>{
+          const label = (p.name || p.ip) + '（' + p.ip + ':' + p.port + '）';
+          if(!confirm('确认向「'+label+'」发送文件？\n\n确认后再选择要发送的文件。')) return;
+          sendTarget = p; updateTargetBar(); $('fileinput').click();
+        };
         row.querySelector('[data-act=text]').onclick = ()=>{
           // 选中「互传文字」的对应设备并聚焦输入框
           const sel = $('textpeer');
@@ -604,6 +640,9 @@ async function loadPeers(){
         peers.map(p=>'<option value="'+esc(p.ip)+'|'+p.port+'">'+esc(p.name)+'（'+esc(p.ip)+':'+p.port+'）</option>').join('');
       if([...sel.options].some(o=>o.value===cur)) sel.value = cur;
     }
+    // 目标设备已从局域网消失时清空目标条，防止误发到旧目标
+    if(sendTarget && !peers.some(p => p.ip === sendTarget.ip)) sendTarget = null;
+    updateTargetBar();
   }catch(e){}
 }
 
@@ -627,14 +666,16 @@ async function loadJobs(){
       const pct = j.size ? Math.min(100, Math.round((j.sent || 0) / j.size * 100)) : 0;
       const stateTxt = {queued:'排队中', sending:'发送中', buffering:'缓冲中',
                         done:'已完成', failed:'已中断'}[j.state] || j.state;
+      const pm = (textPeerList || []).find(x => x.ip === j.ip);
+      const dest = pm ? (pm.name || pm.ip) + '（' + j.ip + ':' + j.port + '）' : (j.ip || '') + ':' + j.port;
       const row = document.createElement('div'); row.className = 'fitem';
       row.innerHTML =
         '<div style="flex:1; min-width:0">'+
         '<span class="name"></span>'+
         '<span class="size">'+fmtSize(j.sent || 0)+' / '+fmtSize(j.size)+'</span>'+
         '<div class="prog" style="margin-top:6px"><i style="width:'+pct+'%"></i></div>'+
-        '<div class="meta">'+stateTxt+' → '+
-        (j.ip || '')+':'+j.port+(j.error ? ' · <span style="color:#c0392b">'+esc(j.error)+'</span>' : '')+
+        '<div class="meta">'+stateTxt+' → '+esc(dest)+
+        (j.error ? ' · <span style="color:#c0392b">'+esc(j.error)+'</span>' : '')+
         '</div></div>';
       row.querySelector('.name').textContent = j.name;
       if(j.state === 'failed'){
@@ -662,7 +703,7 @@ $('fileinput').addEventListener('change', async e=>{
   try{
   for(const f of files){
     // 新链路：先分片缓冲到本机（可续传），再交给后台线程发给对方 —— 关页面不中断
-    toast('正在缓冲「'+f.name+'」…');
+    toast('正在缓冲「'+f.name+'」→ '+(p.name || p.ip)+' …');
     try{
       const init = await postJSON('/api/peers/init',
         {name: f.name, size: f.size, ip: p.ip, port: p.port});
@@ -922,7 +963,7 @@ $('openfolder').onclick = async ()=>{
   await fetch('/api/local/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
 };
 
-loadStatus(); loadFiles(); loadPeers(); loadVersion(); pollUpdate(); loadShared(); loadText();
+loadStatus(); loadFiles(); loadPeers(); loadVersion(); pollUpdate(); loadShared(); loadText(); updateTargetBar();
 setInterval(loadPeers, 5000);
 setInterval(loadFiles, 8000);
 setInterval(loadStatus, 8000);
